@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockViewer - Premium Finance Panel</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar: Stock List -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i data-lucide="trending-up" class="logo-icon"></i>
+                <h1 class="logo-text">StockViewer</h1>
+            </div>
+            <div class="search-box">
+                <input type="text" id="addStockInput" placeholder="銘柄コードを追加 (例: 7203)">
+                <button id="addStockBtn" class="add-btn" title="追加"><i data-lucide="plus"></i></button>
+            </div>
+            <ul id="stockList" class="stock-list">
+                <!-- Stocks will be populated dynamically -->
+            </ul>
+            <div class="sidebar-help">
+                <i data-lucide="keyboard" class="help-icon"></i>
+                <span>上下キーで素早く切り替え</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header: Stock Information -->
+            <header class="stock-header">
+                <div class="header-left">
+                    <div class="stock-meta">
+                        <span id="stockSymbol" class="stock-symbol">----</span>
+                        <span id="stockExchange" class="stock-exchange">TSE</span>
+                    </div>
+                    <h2 id="stockName" class="stock-name">データを読み込んでいます...</h2>
+                </div>
+                <div class="header-right">
+                    <div class="price-container">
+                        <div class="current-price">
+                            <span id="currentValue" class="value">0</span>
+                            <span class="currency">JPY</span>
+                        </div>
+                        <div id="priceChange" class="price-change neutral">
+                            <i id="changeIcon" data-lucide="minus"></i>
+                            <span id="changeValue">0 (0.00%)</span>
+                        </div>
+                    </div>
+                    <div class="time-container">
+                        <i data-lucide="clock" class="time-icon"></i>
+                        <span id="updateTime" class="update-time">--/--/-- --:--</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Loading Overlay -->
+            <div id="loadingOverlay" class="loading-overlay hidden">
+                <div class="spinner"></div>
+                <div class="loading-text">株価データを取得中...</div>
+            </div>
+
+            <!-- Chart Container -->
+            <div id="chartContainer" class="chart-container"></div>
+            
+            <!-- Legend (Moving Averages) -->
+            <div id="chartLegend" class="chart-legend">
+                <div class="legend-item"><span class="legend-color ma10"></span> MA 10</div>
+                <div class="legend-item"><span class="legend-color ma20"></span> MA 20</div>
+                <div class="legend-item"><span class="legend-color ma30"></span> MA 30</div>
+                <div class="legend-item"><span class="legend-color ma75"></span> MA 75</div>
+                <div class="legend-item"><span class="legend-color ma200"></span> MA 200</div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- App Logic -->
+    <script src="app.js?v=9"></script>
+</body>
+</html>
