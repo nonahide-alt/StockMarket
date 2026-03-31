@@ -446,15 +446,28 @@ async function fetchStockData(stock) {
     DOM.symbol.textContent = stock.symbol.replace('.T', '');
     DOM.name.textContent = stock.name;
     
-    // 期間に応じてインターバルを調整 (10年は週足に修正: 1moより詳細で1dより高速)
+    // 期間に応じてインターバルを調整
     const interval = currentRange === '10y' ? '1wk' : '1d';
     
-    // 外部プロキシ(allorigins)を廃止し、ローカルプロキシ(/api/yahoo)を直接使用
-    const localUrl = `/api/yahoo?symbol=${encodeURIComponent(stock.symbol)}&range=${currentRange}&interval=${interval}`;
-    
-    const response = await fetch(localUrl);
-    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    const data = await response.json();
+    // 環境判定: ローカル (localhost) なら高速な server.ps1 を使い、それ以外（GitHub Pages等）なら allorigins を使う
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    let data;
+
+    if (isLocal) {
+        const localUrl = `/api/yahoo?symbol=${encodeURIComponent(stock.symbol)}&range=${currentRange}&interval=${interval}`;
+        const response = await fetch(localUrl);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+        data = await response.json();
+    } else {
+        // GitHub Pages環境用 (allorigins プロキシを使用)
+        const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(stock.symbol)}?range=${currentRange}&interval=${interval}`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(yfUrl)}`;
+        const response = await fetch(proxyUrl);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+        const resultData = await response.json();
+        if (!resultData.contents) throw new Error("Empty response from proxy");
+        data = JSON.parse(resultData.contents);
+    }
     
     const result = data.chart?.result?.[0];
     if (!result) throw new Error("No data found");
