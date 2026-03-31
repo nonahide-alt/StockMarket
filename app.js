@@ -201,7 +201,10 @@ async function selectStock(index) {
         await fetchStockData(stock);
     } catch (e) {
         console.error("Error fetching data:", e);
-        DOM.name.textContent = "データの取得に失敗しました";
+        // Only set error message if name hasn't been set by fetchStockData yet
+        if (DOM.name.textContent === "データを読み込んでいます..." || DOM.name.textContent === "検索中...") {
+            DOM.name.textContent = "データの取得に失敗しました";
+        }
     } finally {
         DOM.loadingOverlay.classList.add('hidden');
     }
@@ -209,38 +212,48 @@ async function selectStock(index) {
 
 // Fetch and process data
 async function fetchStockData(stock) {
+    // 1. 基本情報の表示（最速で行う）
+    DOM.symbol.textContent = stock.symbol.replace('.T', '');
+    DOM.name.textContent = stock.name;
+
     const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=2y`;
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(yfUrl)}`;
     
     const response = await fetch(proxyUrl);
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
     const resultData = await response.json();
+    if (!resultData.contents) throw new Error("Empty response from proxy");
     const data = JSON.parse(resultData.contents);
     
     const result = data.chart?.result?.[0];
     if (!result) throw new Error("No data found");
     
     const meta = result.meta;
-    const price = meta.regularMarketPrice;
     
-    // Yahoo API may return prev close under different properties depending on the endpoint/time
-    const prevClose = meta.regularMarketPreviousClose || meta.chartPreviousClose || meta.previousClose || price;
-    
-    const change = price - prevClose;
-    const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
-    
-    DOM.symbol.textContent = stock.symbol.replace('.T', '');
-    stock.name = meta.longName || meta.shortName || stock.name; // 最新の名前に上書き
+    // 銘柄名を最新のものに更新
+    stock.name = meta.longName || meta.shortName || stock.name;
     DOM.name.textContent = stock.name;
-    DOM.price.textContent = price.toLocaleString();
-    renderSidebar(); // 名前が更新された可能性があるのでリストを再描画
+    renderSidebar();
+
+    // 市場価格の取得と成形
+    const price = meta.regularMarketPrice;
+    if (price !== undefined && price !== null) {
+        DOM.price.textContent = price.toLocaleString();
+    }
     
-    const isUp = change >= 0;
-    DOM.change.className = `price-change ${isUp ? 'positive' : 'negative'}`;
-    DOM.changeIcon.setAttribute('data-lucide', isUp ? 'trending-up' : 'trending-down');
-    DOM.changeValue.textContent = `${isUp ? '+' : ''}${change.toFixed(1)} (${isUp ? '+' : ''}${changePercent.toFixed(2)}%)`;
+    // 前日比の計算
+    const prevClose = meta.regularMarketPreviousClose || meta.chartPreviousClose || meta.previousClose;
+    if (price !== undefined && price !== null && prevClose !== undefined && prevClose !== null) {
+        const change = price - prevClose;
+        const changePercent = prevClose !== 0 ? (change / prevClose) * 100 : 0;
+        
+        const isUp = change >= 0;
+        DOM.change.className = `price-change ${isUp ? 'positive' : 'negative'}`;
+        DOM.changeIcon.setAttribute('data-lucide', isUp ? 'trending-up' : 'trending-down');
+        DOM.changeValue.textContent = `${isUp ? '+' : ''}${change.toFixed(1)} (${isUp ? '+' : ''}${changePercent.toFixed(2)}%)`;
+    }
     
-    // Format timestamp
+    // 時刻の更新
     const updateTimeMs = meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now();
     const updateDate = new Date(updateTimeMs);
     const m = (updateDate.getMonth()+1).toString().padStart(2, '0');
