@@ -19,18 +19,61 @@
                 <i data-lucide="trending-up" class="logo-icon"></i>
                 <h1 class="logo-text">StockViewer</h1>
             </div>
-            <div class="search-box">
-                <input type="text" id="addStockInput" placeholder="銘柄コードを追加 (例: 7203)">
-                <button id="addStockBtn" class="add-btn" title="追加"><i data-lucide="plus"></i></button>
+            <!-- Stock List Container -->
+            <div id="stockListContainer" class="stock-list-container">
+                <ul id="stockList" class="stock-list">
+                    <!-- Stocks will be populated dynamically -->
+                </ul>
             </div>
-            <ul id="stockList" class="stock-list">
-                <!-- Stocks will be populated dynamically -->
-            </ul>
-            <div class="sidebar-help">
-                <i data-lucide="keyboard" class="help-icon"></i>
-                <span>上下キーで素早く切り替え</span>
+            <div class="sidebar-footer">
+                <div class="footer-item" id="openSettingsBtn" title="設定">
+                    <i data-lucide="settings" class="footer-icon"></i>
+                    <span>設定</span>
+                </div>
+                <div class="footer-item">
+                    <i data-lucide="keyboard" class="footer-icon"></i>
+                    <span>操作ヘルプ</span>
+                </div>
             </div>
         </aside>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal-overlay hidden">
+            <div class="modal-container">
+                <div class="modal-header">
+                    <h3>システム設定</h3>
+                    <button class="close-modal" id="closeSettingsBtn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h4>銘柄データの管理</h4>
+                        <p class="settings-desc">CSVファイルを使用して銘柄リストを一括インポート・エクスポートできます。</p>
+                        
+                        <div class="settings-actions">
+                            <button id="exportCSVBtn" class="action-btn secondary">
+                                <i data-lucide="download"></i> CSVエクスポート
+                            </button>
+                            <button id="importCSVBtn" class="action-btn primary">
+                                <i data-lucide="upload"></i> CSVインポート
+                            </button>
+                            <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                        </div>
+                        
+                        <div id="importStatus" class="import-status"></div>
+                    </div>
+                    
+                    <div class="settings-divider"></div>
+                    
+                    <div class="settings-section">
+                        <h4>データの初期化</h4>
+                        <p class="settings-desc">インポートしたすべてのカスタムデータを削除し、デフォルトの銘柄リストに戻します。</p>
+                        <button id="resetDataBtn" class="action-btn danger">
+                            <i data-lucide="trash-2"></i> デフォルトに戻す
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Main Content -->
         <main class="main-content">
@@ -42,6 +85,11 @@
                         <span id="stockExchange" class="stock-exchange">TSE</span>
                     </div>
                     <h2 id="stockName" class="stock-name">データを読み込んでいます...</h2>
+                    <!-- Chart Tabs (Moved here) -->
+                    <div class="chart-tabs">
+                        <button class="tab-btn active" data-range="2y">2年</button>
+                        <button class="tab-btn" data-range="10y">10年</button>
+                    </div>
                 </div>
                 <div class="header-right">
                     <div class="price-container">
@@ -68,15 +116,15 @@
             </div>
 
             <!-- Chart Container -->
-            <div id="chartContainer" class="chart-container"></div>
-            
-            <!-- Legend (Moving Averages) -->
-            <div id="chartLegend" class="chart-legend">
-                <div class="legend-item"><span class="legend-color ma10"></span> MA 10</div>
-                <div class="legend-item"><span class="legend-color ma20"></span> MA 20</div>
-                <div class="legend-item"><span class="legend-color ma30"></span> MA 30</div>
-                <div class="legend-item"><span class="legend-color ma75"></span> MA 75</div>
-                <div class="legend-item"><span class="legend-color ma200"></span> MA 200</div>
+            <div id="chartContainer" class="chart-container">
+                <!-- Legend (Moving Averages) -->
+                <div id="chartLegend" class="chart-legend">
+                    <div class="legend-item"><span class="legend-color ma10"></span> MA 10</div>
+                    <div class="legend-item"><span class="legend-color ma20"></span> MA 20</div>
+                    <div class="legend-item"><span class="legend-color ma30"></span> MA 30</div>
+                    <div class="legend-item"><span class="legend-color ma75"></span> MA 75</div>
+                    <div class="legend-item"><span class="legend-color ma200"></span> MA 200</div>
+                </div>
             </div>
         </main>
     </div>

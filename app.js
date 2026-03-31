@@ -1,21 +1,11 @@
-const STOCKS = [
-    { symbol: '7203.T', name: 'トヨタ自動車' },
-    { symbol: '9984.T', name: 'ソフトバンクグループ' },
-    { symbol: '8306.T', name: '三菱UFJフィナンシャルG' },
-    { symbol: '6758.T', name: 'ソニーグループ' },
-    { symbol: '6861.T', name: 'キーエンス' },
-    { symbol: '8035.T', name: '東京エレクトロン' },
-    { symbol: '9432.T', name: '日本電信電話 (NTT)' },
-    { symbol: '9983.T', name: 'ファーストリテイリング' },
-    { symbol: '4063.T', name: '信越化学工業' },
-    { symbol: '8058.T', name: '三菱商事' }
-];
-
+let STOCKS = []; // Will be populated from CSV
+let TREE_DATA = {}; // { Major: { Middle: [Stocks] } }
 let currentIndex = 0;
 let chart = null;
 let candleSeries = null;
 let volumeSeries = null;
 let monthDelimiterSeries = null;
+let currentRange = '2y';
 let lineSeriesMap = {};
 
 const DOM = {
@@ -29,38 +19,66 @@ const DOM = {
     time: document.getElementById('updateTime'),
     chartContainer: document.getElementById('chartContainer'),
     loadingOverlay: document.getElementById('loadingOverlay'),
-    addStockInput: document.getElementById('addStockInput'),
-    addStockBtn: document.getElementById('addStockBtn')
+    rangeBtns: null,
+    // Settings Modal
+    settingsModal: document.getElementById('settingsModal'),
+    openSettingsBtn: document.getElementById('openSettingsBtn'),
+    closeSettingsBtn: document.getElementById('closeSettingsBtn'),
+    exportCSVBtn: document.getElementById('exportCSVBtn'),
+    importCSVBtn: document.getElementById('importCSVBtn'),
+    csvFileInput: document.getElementById('csvFileInput'),
+    resetDataBtn: document.getElementById('resetDataBtn'),
+    importStatus: document.getElementById('importStatus')
 };
 
+const STORAGE_KEY = 'stock_viewer_custom_data';
+
 // Initialize app
-function init() {
+async function init() {
     try {
         lucide.createIcons();
-        renderSidebar();
         initChart();
         
-        // Initial fetch
-        selectStock(currentIndex);
+        DOM.rangeBtns = document.querySelectorAll('.tab-btn');
         
-        // Add Stock Events
-        DOM.addStockBtn.addEventListener('click', handleAddStock);
-        DOM.addStockInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') handleAddStock();
+        // Load Data (LocalStorage or CSV)
+        await loadMeigaraData();
+        
+        // Range Tab Events
+        DOM.rangeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const range = btn.getAttribute('data-range');
+                if (range !== currentRange) {
+                    setRange(range);
+                }
+            });
         });
 
+        // Settings Events
+        DOM.openSettingsBtn.onclick = () => DOM.settingsModal.classList.remove('hidden');
+        DOM.closeSettingsBtn.onclick = () => DOM.settingsModal.classList.add('hidden');
+        window.onclick = (e) => {
+            if (e.target === DOM.settingsModal) DOM.settingsModal.classList.add('hidden');
+        };
+
+        DOM.exportCSVBtn.onclick = exportCSV;
+        DOM.importCSVBtn.onclick = () => DOM.csvFileInput.click();
+        DOM.csvFileInput.onchange = (e) => importCSV(e.target.files[0]);
+        DOM.resetDataBtn.onclick = resetData;
+        
         // Keyboard navigation
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (currentIndex > 0) selectStock(currentIndex - 1);
+                navigateStock(-1);
             } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                if (currentIndex < STOCKS.length - 1) selectStock(currentIndex + 1);
+                navigateStock(1);
+            } else if (e.key === 'Escape') {
+                DOM.settingsModal.classList.add('hidden');
             }
         });
 
-        // Handle window resize
         window.addEventListener('resize', () => {
             if (chart) {
                 chart.applyOptions({
@@ -69,30 +87,225 @@ function init() {
                 });
             }
         });
+
+        if (STOCKS.length > 0) {
+            selectStock(0);
+        }
     } catch (e) {
         document.body.innerHTML = `<div style="color:red; background:white; padding: 20px; font-size: 20px; z-index: 9999; position: absolute; top:0; left:0; right:0; bottom:0; padding:100px;">INIT CRASH: ${e.message}<br/><br/><pre style="white-space: pre-wrap;">${e.stack}</pre></div>`;
         console.error(e);
     }
 }
 
-// Render Sidebar List
+async function loadMeigaraData() {
+    let csvText = '';
+    const cachedData = localStorage.getItem(STORAGE_KEY);
+    
+    if (cachedData) {
+        csvText = cachedData;
+    } else {
+        const response = await fetch('meigara.csv');
+        csvText = await response.text();
+    }
+    
+    parseCSV(csvText);
+    renderSidebar();
+}
+
+function parseCSV(text) {
+    const lines = text.split('\n').filter(line => line.trim() !== '');
+    
+    // Check if first line is header by inspecting the content (heuristic)
+    const firstLine = lines[0].split(',');
+    let dataLines = lines;
+    if (firstLine[0].includes('分類') || firstLine[2].includes('コード')) {
+        dataLines = lines.slice(1);
+    }
+    
+    STOCKS = [];
+    TREE_DATA = {};
+    
+    dataLines.forEach(line => {
+        const parts = line.split(',').map(s => s.trim());
+        if (parts.length < 4) return;
+        
+        const [major, middle, code, name, remarks] = parts;
+        if (!code) return;
+        
+        const symbol = code.includes('.') ? code : code + '.T';
+        const stock = { 
+            symbol, 
+            name, 
+            remarks: remarks || '',
+            major: major || 'その他',
+            middle: middle || '共通'
+        };
+        
+        STOCKS.push(stock);
+        
+        if (!TREE_DATA[stock.major]) TREE_DATA[stock.major] = {};
+        if (!TREE_DATA[stock.major][stock.middle]) TREE_DATA[stock.major][stock.middle] = [];
+        TREE_DATA[stock.major][stock.middle].push(stock);
+    });
+}
+
+function exportCSV() {
+    // UTF-8 BOM to prevent garbling in Excel
+    let csvContent = '\uFEFF大分類,中分類,銘柄コード,銘柄名,備考\n';
+    STOCKS.forEach(s => {
+        const code = s.symbol.replace('.T', '');
+        csvContent += `${s.major},${s.middle},${code},${s.name},${s.remarks}\n`;
+    });
+    
+    // Format: StockView_YYYYMMDD_HHMMSS.csv
+    const now = new Date();
+    const Y = now.getFullYear();
+    const M = (now.getMonth() + 1).toString().padStart(2, '0');
+    const D = now.getDate().toString().padStart(2, '0');
+    const h = now.getHours().toString().padStart(2, '0');
+    const m = now.getMinutes().toString().padStart(2, '0');
+    const s = now.getSeconds().toString().padStart(2, '0');
+    const filename = `StockView_${Y}${M}${D}_${h}${m}${s}.csv`;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function importCSV(file) {
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const text = e.target.result;
+            localStorage.setItem(STORAGE_KEY, text);
+            parseCSV(text);
+            renderSidebar();
+            
+            showStatus('インポート成功！銘柄リストを更新しました。', 'success');
+            setTimeout(() => {
+                selectStock(0);
+                DOM.settingsModal.classList.add('hidden');
+            }, 1000);
+        } catch (err) {
+            console.error(err);
+            showStatus('インポート失敗: CSVの形式を確認してください。', 'error');
+        }
+    };
+    reader.readAsText(file);
+}
+
+function resetData() {
+    if (confirm('すべてのカスタムデータを削除してデフォルトに戻しますか？')) {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
+    }
+}
+
+function showStatus(msg, type) {
+    DOM.importStatus.innerHTML = `<span class="status-msg ${type}">${msg}</span>`;
+    setTimeout(() => {
+        DOM.importStatus.innerHTML = '';
+    }, 3000);
+}
+
 function renderSidebar() {
     DOM.list.innerHTML = '';
-    STOCKS.forEach((stock, index) => {
-        const li = document.createElement('li');
-        li.className = `stock-item ${index === currentIndex ? 'active' : ''}`;
-        li.onclick = () => selectStock(index);
+    
+    Object.keys(TREE_DATA).forEach((major, majIdx) => {
+        const majorFolder = createFolder(major, 'major-folder');
+        const majorContent = majorFolder.querySelector('.folder-content');
         
-        li.innerHTML = `
-            <div class="stock-item-left">
-                <span class="stock-item-symbol">${stock.symbol.replace('.T', '')}</span>
-                <span class="stock-item-name">${stock.name}</span>
-            </div>
-            <i data-lucide="chevron-right" style="color: var(--text-muted); width: 16px;"></i>
-        `;
-        DOM.list.appendChild(li);
+        // Default: first major folder open, others closed
+        if (majIdx !== 0) majorFolder.classList.add('collapsed');
+        
+        Object.keys(TREE_DATA[major]).forEach(middle => {
+            const middleFolder = createFolder(middle, 'middle-folder');
+            const middleContent = middleFolder.querySelector('.folder-content');
+            
+            // Default: middle folders closed
+            middleFolder.classList.add('collapsed');
+            
+            TREE_DATA[major][middle].forEach(stock => {
+                const globalIndex = STOCKS.indexOf(stock);
+                const item = createStockItem(stock, globalIndex);
+                middleContent.appendChild(item);
+            });
+            
+            majorContent.appendChild(middleFolder);
+        });
+        
+        DOM.list.appendChild(majorFolder);
     });
+    
     lucide.createIcons();
+}
+
+function createFolder(title, className) {
+    const div = document.createElement('div');
+    div.className = `folder-item ${className}`;
+    
+    div.innerHTML = `
+        <div class="folder-header">
+            <i data-lucide="chevron-right" class="folder-icon"></i>
+            <span class="folder-title">${title}</span>
+        </div>
+        <div class="folder-content"></div>
+    `;
+    
+    div.querySelector('.folder-header').onclick = (e) => {
+        e.stopPropagation();
+        div.classList.toggle('collapsed');
+        lucide.createIcons();
+    };
+    
+    return div;
+}
+
+function createStockItem(stock, index) {
+    const li = document.createElement('li');
+    li.className = `stock-item ${index === currentIndex ? 'active' : ''}`;
+    li.dataset.index = index;
+    li.onclick = (e) => {
+        e.stopPropagation();
+        selectStock(index);
+    };
+    
+    li.innerHTML = `
+        <div class="stock-item-left">
+            <span class="stock-item-symbol">${stock.symbol.replace('.T', '')}</span>
+            <span class="stock-item-name">${stock.name}</span>
+            ${stock.remarks ? `<span class="stock-item-remarks">${stock.remarks}</span>` : ''}
+        </div>
+        <i data-lucide="chevron-right" style="color: var(--text-muted); width: 14px;"></i>
+    `;
+    return li;
+}
+
+function navigateStock(direction) {
+    const newIndex = currentIndex + direction;
+    if (newIndex >= 0 && newIndex < STOCKS.length) {
+        selectStock(newIndex);
+        
+        // Ensure its parent folders are expanded
+        const activeItem = DOM.list.querySelector(`.stock-item[data-index="${newIndex}"]`);
+        if (activeItem) {
+            let parent = activeItem.parentElement;
+            while (parent && parent !== DOM.list) {
+                if (parent.classList.contains('folder-item')) {
+                    parent.classList.remove('collapsed');
+                }
+                parent = parent.parentElement;
+            }
+        }
+    }
 }
 
 // Initialize Lightweight Charts
@@ -184,16 +397,11 @@ function initChart() {
 // Select a stock and fetch data
 async function selectStock(index) {
     currentIndex = index;
-    renderSidebar(); // Update active state
+    updateActiveStockUI();
     
-    // Make sure the active item is visible
-    const activeItem = DOM.list.children[index];
-    if (activeItem) {
-        activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-
     const stock = STOCKS[currentIndex];
-    
+    if (!stock) return;
+
     // Show Loading
     DOM.loadingOverlay.classList.remove('hidden');
     
@@ -201,8 +409,7 @@ async function selectStock(index) {
         await fetchStockData(stock);
     } catch (e) {
         console.error("Error fetching data:", e);
-        // Only set error message if name hasn't been set by fetchStockData yet
-        if (DOM.name.textContent === "データを読み込んでいます..." || DOM.name.textContent === "検索中...") {
+        if (DOM.name.textContent === "データを読み込んでいます...") {
             DOM.name.textContent = "データの取得に失敗しました";
         }
     } finally {
@@ -210,20 +417,44 @@ async function selectStock(index) {
     }
 }
 
+function updateActiveStockUI() {
+    // Remove active class from all
+    const items = DOM.list.querySelectorAll('.stock-item');
+    items.forEach(item => item.classList.remove('active'));
+    
+    // Add to current
+    const activeItem = DOM.list.querySelector(`.stock-item[data-index="${currentIndex}"]`);
+    if (activeItem) {
+        activeItem.classList.add('active');
+        
+        // Ensure its parent folders are expanded
+        let parent = activeItem.parentElement;
+        while (parent && parent !== DOM.list) {
+            if (parent.classList.contains('folder-item')) {
+                parent.classList.remove('collapsed');
+            }
+            parent = parent.parentElement;
+        }
+        
+        // Scroll into view
+        activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
 // Fetch and process data
 async function fetchStockData(stock) {
-    // 1. 基本情報の表示（最速で行う）
     DOM.symbol.textContent = stock.symbol.replace('.T', '');
     DOM.name.textContent = stock.name;
-
-    const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=2y`;
-    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(yfUrl)}`;
     
-    const response = await fetch(proxyUrl);
+    // 期間に応じてインターバルを調整 (10年は週足に修正: 1moより詳細で1dより高速)
+    const interval = currentRange === '10y' ? '1wk' : '1d';
+    
+    // 外部プロキシ(allorigins)を廃止し、ローカルプロキシ(/api/yahoo)を直接使用
+    const localUrl = `/api/yahoo?symbol=${encodeURIComponent(stock.symbol)}&range=${currentRange}&interval=${interval}`;
+    
+    const response = await fetch(localUrl);
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    const resultData = await response.json();
-    if (!resultData.contents) throw new Error("Empty response from proxy");
-    const data = JSON.parse(resultData.contents);
+    const data = await response.json();
     
     const result = data.chart?.result?.[0];
     if (!result) throw new Error("No data found");
@@ -233,7 +464,10 @@ async function fetchStockData(stock) {
     // 銘柄名を最新のものに更新
     stock.name = meta.longName || meta.shortName || stock.name;
     DOM.name.textContent = stock.name;
-    renderSidebar();
+    
+    // Update name in sidebar item
+    const item = DOM.list.querySelector(`.stock-item[data-index="${STOCKS.indexOf(stock)}"] .stock-item-name`);
+    if (item) item.textContent = stock.name;
 
     // 市場価格の取得と成形
     const price = meta.regularMarketPrice;
@@ -312,9 +546,17 @@ async function fetchStockData(stock) {
             color: quotes.close[i] >= quotes.open[i] ? 'rgba(16, 185, 129, 0.5)' : 'rgba(244, 63, 94, 0.5)'
         });
         
+        let delimiterValue = 0;
+        if (interval === '1d') {
+            if (isFirstDayOfMonth) delimiterValue = 1;
+        } else {
+            // 週足や月足などの長期チャートでは、年の切り替わり目のみを表示
+            if (isFirstDayOfYear) delimiterValue = 1;
+        }
+
         delimiterData.push({
             time: timeStr,
-            value: isFirstDayOfMonth ? 1 : 0,
+            value: delimiterValue,
             color: isFirstDayOfYear ? 'rgba(255, 255, 255, 0.8)' : 'rgba(255, 255, 255, 0.15)'
         });
     }
@@ -349,26 +591,30 @@ function calculateSMA(data, period) {
     return result;
 }
 
-function handleAddStock() {
-    const code = DOM.addStockInput.value.trim();
-    if (!code) return;
+// Change the time range and refresh
+async function setRange(range) {
+    currentRange = range;
     
-    // .Tがなければ自動付与（日本株のデフォルト）
-    const symbol = code.includes('.') ? code.toUpperCase() : code + '.T';
-    
-    // 重複チェック
-    const existingIndex = STOCKS.findIndex(s => s.symbol === symbol);
-    if (existingIndex !== -1) {
-        selectStock(existingIndex);
-        DOM.addStockInput.value = '';
-        return;
+    // Update active tab UI
+    if (DOM.rangeBtns) {
+        DOM.rangeBtns.forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-range') === range);
+        });
     }
     
-    // リストに追加して選択
-    STOCKS.push({ symbol: symbol, name: '検索中...' });
-    const newIndex = STOCKS.length - 1;
-    selectStock(newIndex);
-    DOM.addStockInput.value = '';
+    // Reload current stock data with new range
+    const stock = STOCKS[currentIndex];
+    if (!stock) return;
+
+    DOM.loadingOverlay.classList.remove('hidden');
+    try {
+        await fetchStockData(stock);
+    } catch (e) {
+        console.error("Error refreshing range data:", e);
+    } finally {
+        DOM.loadingOverlay.classList.add('hidden');
+    }
 }
+
 
 init();

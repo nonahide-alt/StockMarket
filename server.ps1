@@ -29,7 +29,11 @@ try {
             try {
                 $symbol = $request.QueryString["symbol"]
                 if (-not $symbol) { $symbol = "7203.T" }
-                $yfUrl = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol`?interval=1d&range=2y"
+                $range = $request.QueryString["range"]
+                if (-not $range) { $range = "2y" }
+                $interval = $request.QueryString["interval"]
+                if (-not $interval) { $interval = "1d" }
+                $yfUrl = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol`?interval=$interval&range=$range"
                 $yfResponse = Invoke-WebRequest -Uri $yfUrl -Method Get -Headers @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } -UseBasicParsing
                 $bytes = [System.Text.Encoding]::UTF8.GetBytes($yfResponse.Content)
                 
