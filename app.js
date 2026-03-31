@@ -209,11 +209,13 @@ async function selectStock(index) {
 
 // Fetch and process data
 async function fetchStockData(stock) {
-    const proxyUrl = `/api/yahoo?symbol=${stock.symbol}`;
+    const yfUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=2y`;
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(yfUrl)}`;
     
     const response = await fetch(proxyUrl);
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    const data = await response.json();
+    const resultData = await response.json();
+    const data = JSON.parse(resultData.contents);
     
     const result = data.chart?.result?.[0];
     if (!result) throw new Error("No data found");
