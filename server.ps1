@@ -1,4 +1,4 @@
-$port = 8080
+$port = 8888
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://localhost:$port/")
 try {
@@ -42,11 +42,85 @@ try {
                 $output = $response.OutputStream
                 $output.Write($bytes, 0, $bytes.Length)
                 $output.Close()
-                Write-Host "200 - Proxy API ($symbol)" -ForegroundColor Cyan
+                Write-Host "200 - Proxy API ($symbol, range=$range, interval=$interval)" -ForegroundColor Cyan
             } catch {
                 $response.StatusCode = 500
                 $response.Close()
                 Write-Host "500 - Proxy API Error ($symbol)" -ForegroundColor Red
+            }
+            continue
+        }
+        
+        # Proxy to Yahoo Finance Spark API (for multiple symbols screening)
+        if ($urlPath -eq "api/yahoo-spark") {
+            try {
+                $symbols = $request.QueryString["symbols"]
+                if (-not $symbols) { $symbols = "7203.T" }
+                $range = $request.QueryString["range"]
+                if (-not $range) { $range = "2y" }
+                $interval = $request.QueryString["interval"]
+                if (-not $interval) { $interval = "1d" }
+                
+                $yfUrl = "https://query1.finance.yahoo.com/v7/finance/spark?symbols=$symbols&range=$range&interval=$interval"
+                $yfResponse = Invoke-WebRequest -Uri $yfUrl -Method Get -Headers @{ "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } -UseBasicParsing
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($yfResponse.Content)
+                
+                $response.ContentType = "application/json; charset=utf-8"
+                $response.ContentLength64 = $bytes.Length
+                $output = $response.OutputStream
+                $output.Write($bytes, 0, $bytes.Length)
+                $output.Close()
+                Write-Host "200 - Proxy Spark API ($symbols, range=$range, interval=$interval)" -ForegroundColor Cyan
+            } catch {
+                $response.StatusCode = 500
+                $response.Close()
+                Write-Host "500 - Proxy Spark API Error ($symbols)" -ForegroundColor Red
+            }
+            continue
+        }
+        
+        # Proxy to download JPX listed stocks Excel file
+        if ($urlPath -eq "api/jpx-excel") {
+            try {
+                # 1. Fetch HTML to find the latest xls link
+                $htmlResp = Invoke-WebRequest -Uri "https://www.jpx.co.jp/markets/statistics-equities/misc/01.html" -Method Get -UseBasicParsing
+                $html = $htmlResp.Content
+                if ($html -match 'href="(/markets/statistics-equities/misc/tvdivq.+?\.xls)"') {
+                    $xlsPath = $matches[1]
+                    $xlsUrl = "https://www.jpx.co.jp" + $xlsPath
+                    
+                    # 2. Download XLS binary
+                    $xlsResp = Invoke-WebRequest -Uri $xlsUrl -Method Get -UseBasicParsing
+                    $xlsBytes = $xlsResp.Content
+                    if ($xlsBytes.GetType() -eq [string]) {
+                        # Sometimes Content parsed as string depending on PS version, need raw bytes
+                        $xlsResp = Invoke-WebRequest -Uri $xlsUrl -Method Get -PassThru
+                        # Note: with UseBasicParsing in PS5, Content is byte array if binary
+                    }
+                    # Getting raw bytes safely in both PS5/PS7:
+                    $memoryStream = New-Object System.IO.MemoryStream
+                    $stream = $xlsResp.RawContentStream
+                    $stream.CopyTo($memoryStream)
+                    $bytes = $memoryStream.ToArray()
+                    $memoryStream.Close()
+                    
+                    $response.ContentType = "application/vnd.ms-excel"
+                    $response.ContentLength64 = $bytes.Length
+                    
+                    # add CORS headers just in case
+                    $response.AddHeader("Access-Control-Allow-Origin", "*")
+                    
+                    $output = $response.OutputStream
+                    $output.Write($bytes, 0, $bytes.Length)
+                    $output.Close()
+                    Write-Host "200 - Proxy JPX Excel ($xlsUrl)" -ForegroundColor Cyan
+                } else {
+                    throw "Failed to find XLS link in JPX page."
+                }
+            } catch {
+                Write-Host "500 - Proxy JPX Excel Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+                $response.Close()
             }
             continue
         }

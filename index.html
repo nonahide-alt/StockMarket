@@ -14,7 +14,7 @@
 <body>
     <div id="app">
         <!-- Sidebar: Stock List -->
-        <aside class="sidebar">
+        <aside id="sidebar" class="sidebar">
             <div class="sidebar-header">
                 <i data-lucide="trending-up" class="logo-icon"></i>
                 <h1 class="logo-text">StockViewer</h1>
@@ -30,12 +30,17 @@
                     <i data-lucide="settings" class="footer-icon"></i>
                     <span>設定</span>
                 </div>
+                <div class="footer-item" id="openSearchBtn" title="条件検索">
+                    <i data-lucide="search" class="footer-icon"></i>
+                    <span>検索</span>
+                </div>
                 <div class="footer-item">
                     <i data-lucide="keyboard" class="footer-icon"></i>
                     <span>操作ヘルプ</span>
                 </div>
             </div>
         </aside>
+        <div id="sidebarResizer" class="resizer"></div>
 
         <!-- Settings Modal -->
         <div id="settingsModal" class="modal-overlay hidden">
@@ -61,7 +66,17 @@
                         
                         <div id="importStatus" class="import-status"></div>
                     </div>
+                    <div class="settings-divider"></div>
                     
+                    <div class="settings-section">
+                        <h4>東証全銘柄一覧の取得</h4>
+                        <p class="settings-desc">日本取引所グループ(JPX)から最新の東証全銘柄リスト（約4,000件）を取得・追加します。既存のリストは維持されます。</p>
+                        <button id="fetchJpxBtn" class="action-btn primary">
+                            <i data-lucide="download-cloud"></i> 最新の全銘柄を取得
+                        </button>
+                        <div id="jpxStatus" class="import-status"></div>
+                    </div>
+
                     <div class="settings-divider"></div>
                     
                     <div class="settings-section">
@@ -70,6 +85,86 @@
                         <button id="resetDataBtn" class="action-btn danger">
                             <i data-lucide="trash-2"></i> デフォルトに戻す
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Modal -->
+        <div id="searchModal" class="modal-overlay hidden">
+            <div class="modal-container">
+                <div class="modal-header">
+                    <h3>条件検索 (スクリーニング)</h3>
+                    <button class="close-modal" id="closeSearchBtn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h4>ゴールデンクロス抽出</h4>
+                        <p class="settings-desc">全銘柄を対象に、以下の条件を満たす銘柄を抽出します：<br>
+                        ・前日は MA10 ≦ MA20 だった（まだクロス前）<br>
+                        ・当日に MA10 が MA20 を上抜けた（ゴールデンクロス発生）<br>
+                        ・MA10 自体が上向き（前日より上昇）<br>
+                        ・MA75 が前日の値以上（上向きまたは横ばい）</p>
+                        
+                        <div class="settings-actions">
+                            <button id="runGCBtn" class="action-btn primary">
+                                <i data-lucide="play"></i> 抽出開始
+                            </button>
+                        </div>
+                        
+                        <!-- Progress area -->
+                        <div id="searchProgressArea" class="search-progress-area hidden">
+                            <div class="progress-info">
+                                <span id="searchStatusText">抽出中...</span>
+                                <span id="searchCountText">0 / 0</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div id="searchProgressBar" class="progress-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <div class="settings-section">
+                        <h4>バックテスト（直近30取引日）</h4>
+                        <p class="settings-desc">上記と同じ条件でシグナルが発生した日に買い、<strong>5取引日後</strong>に売った場合の勝率と増減率を計算します。</p>
+                        <div class="settings-actions">
+                            <button id="runBacktestBtn" class="action-btn secondary">
+                                <i data-lucide="bar-chart-2"></i> バックテスト実行
+                            </button>
+                        </div>
+
+                        <!-- Backtest Progress area -->
+                        <div id="backtestProgressArea" class="search-progress-area hidden">
+                            <div class="progress-info">
+                                <span id="backtestStatusText">集計中...</span>
+                                <span id="backtestCountText">0 / 0</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div id="backtestProgressBar" class="progress-fill" style="background: var(--warning-color);"></div>
+                            </div>
+                        </div>
+
+                        <!-- Backtest Results -->
+                        <div id="backtestResults" class="backtest-results hidden">
+                            <div class="backtest-stat">
+                                <span class="backtest-label">サンプル数</span>
+                                <span id="btSampleCount" class="backtest-value">--</span>
+                            </div>
+                            <div class="backtest-stat">
+                                <span class="backtest-label">勝率</span>
+                                <span id="btWinRate" class="backtest-value positive">--%</span>
+                            </div>
+                            <div class="backtest-stat">
+                                <span class="backtest-label">平均増減率</span>
+                                <span id="btAvgReturn" class="backtest-value">--%</span>
+                            </div>
+                            <div class="backtest-stat">
+                                <span class="backtest-label">中央値</span>
+                                <span id="btMedianReturn" class="backtest-value">--%</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -87,8 +182,12 @@
                     <h2 id="stockName" class="stock-name">データを読み込んでいます...</h2>
                     <!-- Chart Tabs (Moved here) -->
                     <div class="chart-tabs">
+                        <button class="tab-btn" data-range="1d">1日</button>
                         <button class="tab-btn active" data-range="2y">2年</button>
                         <button class="tab-btn" data-range="10y">10年</button>
+                        <button id="refreshChartBtn" class="refresh-btn" title="チャートを再表示">
+                            <i data-lucide="refresh-cw"></i>
+                        </button>
                     </div>
                 </div>
                 <div class="header-right">
@@ -129,7 +228,28 @@
         </main>
     </div>
 
+    <!-- コンテキストメニュー -->
+    <div id="contextMenu" class="context-menu hidden">
+        <ul class="context-menu-list">
+            <li id="ctxFavorite" class="context-menu-item">
+                <i data-lucide="star"></i> 一時調査候補に登録
+            </li>
+            <li class="context-menu-separator"></li>
+            <li id="ctxYahoo" class="context-menu-item">
+                <i class="external-icon">Y!</i> Yahoo!で開く
+            </li>
+            <li id="ctxNikkei" class="context-menu-item">
+                <i class="external-icon">N</i> 日経新聞で開く
+            </li>
+            <li id="ctxKabutan" class="context-menu-item">
+                <i class="external-icon">K</i> 株探で開く
+            </li>
+        </ul>
+    </div>
+
     <!-- Scripts -->
+    <!-- SheetJS for JPX Excel parsing -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <!-- Lightweight Charts -->
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <!-- Lucide Icons -->
