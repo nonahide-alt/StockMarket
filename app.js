@@ -52,6 +52,7 @@ const DOM = {
     ctxYahoo: document.getElementById('ctxYahoo'),
     ctxNikkei: document.getElementById('ctxNikkei'),
     ctxKabutan: document.getElementById('ctxKabutan'),
+    ctxKabuyoho: document.getElementById('ctxKabuyoho'),
     ctxDelete: document.getElementById('ctxDelete'),
     folderContextMenu: document.getElementById('folderContextMenu'),
     ctxFolderRename: document.getElementById('ctxFolderRename'),
@@ -272,14 +273,14 @@ async function init() {
             DOM.ctxYahoo.onclick = () => {
                 if (!contextTargetSymbol) return;
                 const code = contextTargetSymbol.replace('.T', '');
-                window.open(`https://finance.yahoo.co.jp/quote/${code}`, '_blank');
+                window.open(`https://finance.yahoo.co.jp/quote/${code}/performance`, '_blank');
             };
         }
         if (DOM.ctxNikkei) {
             DOM.ctxNikkei.onclick = () => {
                 if (!contextTargetSymbol) return;
                 const code = contextTargetSymbol.replace('.T', '');
-                window.open(`https://www.nikkei.com/nkd/company/?scode=${code}`, '_blank');
+                window.open(`https://www.nikkei.com/nkd/company/kessan/?scode=${code}`, '_blank');
             };
         }
         if (DOM.ctxKabutan) {
@@ -287,6 +288,13 @@ async function init() {
                 if (!contextTargetSymbol) return;
                 const code = contextTargetSymbol.replace('.T', '');
                 window.open(`https://kabutan.jp/stock/?code=${code}`, '_blank');
+            };
+        }
+        if (DOM.ctxKabuyoho) {
+            DOM.ctxKabuyoho.onclick = () => {
+                if (!contextTargetSymbol) return;
+                const code = contextTargetSymbol.replace('.T', '');
+                window.open(`https://kabuyoho.ifis.co.jp/index.php?id=100&action=tp1&sa=report&bcode=${code}`, '_blank');
             };
         }
         if (DOM.ctxDelete) {
