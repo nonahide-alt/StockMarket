@@ -10,6 +10,8 @@ let lineSeriesMap = {};
 
 const DOM = {
     list: document.getElementById('stockList'),
+    favoriteList: document.getElementById('favoriteList'),
+    verticalResizer: document.getElementById('verticalResizer'),
     name: document.getElementById('stockName'),
     symbol: document.getElementById('stockSymbol'),
     price: document.getElementById('currentValue'),
@@ -50,6 +52,10 @@ const DOM = {
     ctxYahoo: document.getElementById('ctxYahoo'),
     ctxNikkei: document.getElementById('ctxNikkei'),
     ctxKabutan: document.getElementById('ctxKabutan'),
+    ctxDelete: document.getElementById('ctxDelete'),
+    folderContextMenu: document.getElementById('folderContextMenu'),
+    ctxFolderRename: document.getElementById('ctxFolderRename'),
+    ctxFolderDelete: document.getElementById('ctxFolderDelete'),
     // Backtest
     runBacktestBtn: document.getElementById('runBacktestBtn'),
     backtestProgressArea: document.getElementById('backtestProgressArea'),
@@ -60,7 +66,10 @@ const DOM = {
     btSampleCount: document.getElementById('btSampleCount'),
     btWinRate: document.getElementById('btWinRate'),
     btAvgReturn: document.getElementById('btAvgReturn'),
-    btMedianReturn: document.getElementById('btMedianReturn')
+    btMedianReturn: document.getElementById('btMedianReturn'),
+    // Quick Search
+    quickSearchInput: document.getElementById('quickSearchInput'),
+    quickSearchBtn: document.getElementById('quickSearchBtn')
 };
 
 const STORAGE_KEY = 'stock_viewer_custom_data';
@@ -68,6 +77,83 @@ const SIDEBAR_WIDTH_KEY = 'stock_viewer_sidebar_width';
 
 let isSearching = false;
 let contextTargetSymbol = null;
+let contextTargetStock = null;
+let contextTargetFolder = { isMajor: false, major: null, middle: null };
+
+// Quick Search handler
+async function quickSearchStock() {
+    const input = DOM.quickSearchInput;
+    if (!input) return;
+    let code = input.value.trim();
+    if (!code) return;
+    
+    // 数字のみの場合は .T を付与
+    if (/^\d+$/.test(code)) {
+        code = code + '.T';
+    }
+    
+    const symbol = code;
+    
+    // ローディング表示
+    DOM.loadingOverlay.classList.remove('hidden');
+    DOM.symbol.textContent = symbol.replace('.T', '');
+    DOM.name.textContent = '検索中...';
+    
+    try {
+        // APIでデータ取得を試行
+        const hUrl = `/api/yahoo?symbol=${encodeURIComponent(symbol)}&range=1d&interval=1m`;
+        const hResp = await fetch(hUrl);
+        if (!hResp.ok) throw new Error('APIエラー');
+        const headerData = await hResp.json();
+        const hResult = headerData.chart?.result?.[0];
+        if (!hResult) throw new Error('銘柄が見つかりません');
+        
+        const hMeta = hResult.meta;
+        const stockName = hMeta.longName || hMeta.shortName || symbol;
+        
+        // 検索履歴フォルダに登録
+        const historyMajor = '🔍 検索履歴';
+        const now = new Date();
+        const Y = now.getFullYear();
+        const M = (now.getMonth()+1).toString().padStart(2,'0');
+        const D = now.getDate().toString().padStart(2,'0');
+        const historyMiddle = `${Y}/${M}/${D}`;
+        
+        // 重複チェック（同じ日の同じ銘柄は追加しない）
+        if (!TREE_DATA[historyMajor]) TREE_DATA[historyMajor] = {};
+        if (!TREE_DATA[historyMajor][historyMiddle]) TREE_DATA[historyMajor][historyMiddle] = [];
+        
+        const alreadyExists = TREE_DATA[historyMajor][historyMiddle].some(s => s.symbol === symbol);
+        
+        const newStock = {
+            symbol: symbol,
+            name: stockName,
+            originalName: stockName,
+            major: historyMajor,
+            middle: historyMiddle,
+            remarks: ''
+        };
+        
+        if (!alreadyExists) {
+            STOCKS.push(newStock);
+            TREE_DATA[historyMajor][historyMiddle].push(newStock);
+            saveToLocal();
+        }
+        
+        // 該当銘柄を選択状態にしてチャート表示
+        const stockIdx = STOCKS.indexOf(alreadyExists ? TREE_DATA[historyMajor][historyMiddle].find(s => s.symbol === symbol) : newStock);
+        renderSidebar(true);
+        await selectStock(stockIdx >= 0 ? stockIdx : STOCKS.length - 1);
+        
+        input.value = '';
+    } catch (e) {
+        console.error('Quick search error:', e);
+        DOM.name.textContent = '銘柄が見つかりません';
+        DOM.symbol.textContent = symbol.replace('.T', '');
+    } finally {
+        DOM.loadingOverlay.classList.add('hidden');
+    }
+}
 
 // Initialize app
 async function init() {
@@ -75,6 +161,7 @@ async function init() {
         lucide.createIcons();
         initChart();
         initSidebarResizer();
+        initVerticalResizer();
         
         DOM.rangeBtns = document.querySelectorAll('.tab-btn');
         
@@ -110,10 +197,26 @@ async function init() {
         if (DOM.runGCBtn) DOM.runGCBtn.onclick = startGCSearch;
         if (DOM.runBacktestBtn) DOM.runBacktestBtn.onclick = startBacktest;
         
+        // Quick Search Events
+        if (DOM.quickSearchBtn) {
+            DOM.quickSearchBtn.onclick = () => quickSearchStock();
+        }
+        if (DOM.quickSearchInput) {
+            DOM.quickSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    quickSearchStock();
+                }
+            });
+        }
+        
         // Context Menu App-wide events
         document.addEventListener('click', (e) => {
             if (DOM.contextMenu && !DOM.contextMenu.classList.contains('hidden')) {
                 DOM.contextMenu.classList.add('hidden');
+            }
+            if (DOM.folderContextMenu && !DOM.folderContextMenu.classList.contains('hidden')) {
+                DOM.folderContextMenu.classList.add('hidden');
             }
         });
         
@@ -121,6 +224,9 @@ async function init() {
             DOM.sidebar.addEventListener('scroll', () => {
                 if (DOM.contextMenu && !DOM.contextMenu.classList.contains('hidden')) {
                     DOM.contextMenu.classList.add('hidden');
+                }
+                if (DOM.folderContextMenu && !DOM.folderContextMenu.classList.contains('hidden')) {
+                    DOM.folderContextMenu.classList.add('hidden');
                 }
             });
         }
@@ -149,10 +255,10 @@ async function init() {
                         renderSidebar(true);
                         
                         // 一時調査候補の大・中フォルダを強制的に展開する
-                        DOM.list.querySelectorAll('.major-folder').forEach(f => {
+                        document.querySelectorAll('.sidebar .major-folder').forEach(f => {
                             if (f.querySelector('.folder-title').textContent === favMajor) f.classList.remove('collapsed');
                         });
-                        DOM.list.querySelectorAll('.middle-folder').forEach(f => {
+                        document.querySelectorAll('.sidebar .middle-folder').forEach(f => {
                             if (f.querySelector('.folder-title').textContent === favMiddle) f.classList.remove('collapsed');
                         });
                         
@@ -181,6 +287,144 @@ async function init() {
                 if (!contextTargetSymbol) return;
                 const code = contextTargetSymbol.replace('.T', '');
                 window.open(`https://kabutan.jp/stock/?code=${code}`, '_blank');
+            };
+        }
+        if (DOM.ctxDelete) {
+            DOM.ctxDelete.onclick = () => {
+                if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
+                
+                if (!contextTargetStock) return;
+                const targetStock = contextTargetStock;
+                
+                if (confirm(`${targetStock.name} をリストから削除しますか？`)) {
+                    // 古い currentIndex が指している銘柄を記憶するか、今の銘柄が消されるかで判定
+                    const isActiveStockDeleted = (STOCKS[currentIndex] === targetStock);
+                    
+                    // STOCKS配列から削除
+                    const globalIdx = STOCKS.findIndex(s => s === targetStock || (s.symbol === targetStock.symbol && s.major === targetStock.major && s.middle === targetStock.middle));
+                    if (globalIdx !== -1) {
+                        STOCKS.splice(globalIdx, 1);
+                    }
+                    
+                    // TREE_DATAから削除
+                    const majorGrp = TREE_DATA[targetStock.major];
+                    if (majorGrp && majorGrp[targetStock.middle]) {
+                        const midArr = majorGrp[targetStock.middle];
+                        const idx = midArr.findIndex(s => s === targetStock || (s.symbol === targetStock.symbol && s.major === targetStock.major && s.middle === targetStock.middle));
+                        if (idx !== -1) midArr.splice(idx, 1);
+                        
+                        // 空になったらキーを削除
+                        if (midArr.length === 0) {
+                            delete majorGrp[targetStock.middle];
+                            if (Object.keys(majorGrp).length === 0) {
+                                delete TREE_DATA[targetStock.major];
+                            }
+                        }
+                    }
+                    
+                    saveToLocal();
+                    
+                    // 削除したアイテムより後ろのインデックスだった場合の調整
+                    if (isActiveStockDeleted) {
+                        selectStock(Math.max(0, currentIndex - 1));
+                    } else if (globalIdx !== -1 && currentIndex > globalIdx) {
+                        currentIndex--;
+                    }
+                    
+                    renderSidebar(true);
+                    if (STOCKS.length > 0) {
+                        updateActiveStockUI();
+                    } else {
+                        // 銘柄が空になった場合の表示クリア等
+                        DOM.symbol.textContent = "----";
+                        DOM.name.textContent = "銘柄がありません";
+                        DOM.price.textContent = "0";
+                        DOM.changeValue.textContent = "0 (0.00%)";
+                        if (candleSeries) candleSeries.setData([]);
+                        if (volumeSeries) volumeSeries.setData([]);
+                    }
+                }
+            };
+        }
+        
+        if (DOM.ctxFolderRename) {
+            DOM.ctxFolderRename.onclick = () => {
+                if (DOM.folderContextMenu) DOM.folderContextMenu.classList.add('hidden');
+                if (!contextTargetFolder.major) return;
+                
+                const { isMajor, major, middle } = contextTargetFolder;
+                const targetName = isMajor ? major : middle;
+                
+                const newName = prompt('新しいフォルダ名を入力してください:', targetName);
+                if (!newName || newName === targetName) return;
+                
+                // STOCKS の更新
+                STOCKS.forEach(stock => {
+                    if (isMajor) {
+                        if (stock.major === major) stock.major = newName;
+                    } else {
+                        if (stock.major === major && stock.middle === middle) stock.middle = newName;
+                    }
+                });
+                
+                // TREE_DATA の再構築
+                const newTree = {};
+                STOCKS.forEach(stock => {
+                    if (!newTree[stock.major]) newTree[stock.major] = {};
+                    if (!newTree[stock.major][stock.middle]) newTree[stock.major][stock.middle] = [];
+                    newTree[stock.major][stock.middle].push(stock);
+                });
+                TREE_DATA = newTree;
+                
+                saveToLocal();
+                renderSidebar(true);
+            };
+        }
+        
+        if (DOM.ctxFolderDelete) {
+            DOM.ctxFolderDelete.onclick = () => {
+                if (DOM.folderContextMenu) DOM.folderContextMenu.classList.add('hidden');
+                if (!contextTargetFolder.major) return;
+                
+                const { isMajor, major, middle } = contextTargetFolder;
+                const targetName = isMajor ? major : middle;
+                
+                if (confirm(`フォルダ「${targetName}」内のすべての銘柄を削除しますか？`)) {
+                    // STOCKS から一括削除
+                    const initialCount = STOCKS.length;
+                    
+                    if (isMajor) {
+                        STOCKS = STOCKS.filter(stock => stock.major !== major);
+                        delete TREE_DATA[major];
+                    } else {
+                        STOCKS = STOCKS.filter(stock => !(stock.major === major && stock.middle === middle));
+                        if (TREE_DATA[major]) {
+                            delete TREE_DATA[major][middle];
+                            if (Object.keys(TREE_DATA[major]).length === 0) {
+                                delete TREE_DATA[major];
+                            }
+                        }
+                    }
+                    
+                    if (STOCKS.length !== initialCount) {
+                        saveToLocal();
+                        // 修正されたcurrentIndexのために現在の状態を確認
+                        if (!STOCKS[currentIndex]) {
+                            selectStock(Math.max(0, STOCKS.length - 1));
+                        }
+                        renderSidebar(false); // 削除なので開閉状態を一旦リセットまたは再構築
+                        if (STOCKS.length > 0) {
+                            updateActiveStockUI();
+                        } else {
+                            DOM.symbol.textContent = "----";
+                            DOM.name.textContent = "銘柄がありません";
+                            DOM.price.textContent = "0";
+                            DOM.changeValue.textContent = "0 (0.00%)";
+                            if (candleSeries) candleSeries.setData([]);
+                            if (volumeSeries) volumeSeries.setData([]);
+                        }
+                    }
+                }
             };
         }
 
@@ -369,21 +613,72 @@ function showStatus(msg, type) {
 function renderSidebar(preserveState = false) {
     let openFolders = new Set();
     if (preserveState) {
-        DOM.list.querySelectorAll('.major-folder:not(.collapsed)').forEach(f => {
-            const t = f.querySelector('.folder-title');
-            if (t) openFolders.add('major:' + t.textContent);
+        document.querySelectorAll('.sidebar .major-folder:not(.collapsed)').forEach(f => {
+            if (f.dataset.name) openFolders.add('major:' + f.dataset.name);
         });
-        DOM.list.querySelectorAll('.middle-folder:not(.collapsed)').forEach(f => {
-            const t = f.querySelector('.folder-title');
-            if (t) openFolders.add('middle:' + t.textContent);
+        document.querySelectorAll('.sidebar .middle-folder:not(.collapsed)').forEach(f => {
+            if (f.dataset.name) openFolders.add('middle:' + f.dataset.name);
         });
     }
 
     DOM.list.innerHTML = '';
+    if (DOM.favoriteList) DOM.favoriteList.innerHTML = '';
     
-    Object.keys(TREE_DATA).forEach((major, majIdx) => {
-        const majorFolder = createFolder(major, 'major-folder');
+    let majIdx = 0;
+    Object.keys(TREE_DATA).forEach((major) => {
+        let majorCount = 0;
+        Object.values(TREE_DATA[major]).forEach(arr => { majorCount += arr.length; });
+        const majorTitle = `${major} (${majorCount}件)`;
+        
+        const majorFolder = createFolder(majorTitle, 'major-folder', true, major, null);
         const majorContent = majorFolder.querySelector('.folder-content');
+        
+        // ドラッグ並び替え対応
+        majorFolder.draggable = true;
+        majorFolder.dataset.majorKey = major;
+        majorFolder.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', major);
+            majorFolder.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        majorFolder.addEventListener('dragend', () => {
+            majorFolder.classList.remove('dragging');
+            document.querySelectorAll('.folder-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+        });
+        majorFolder.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const dragging = majorFolder.parentElement?.querySelector('.dragging');
+            if (dragging && dragging !== majorFolder) {
+                majorFolder.classList.add('drag-over');
+            }
+        });
+        majorFolder.addEventListener('dragleave', () => {
+            majorFolder.classList.remove('drag-over');
+        });
+        majorFolder.addEventListener('drop', (e) => {
+            e.preventDefault();
+            majorFolder.classList.remove('drag-over');
+            const draggedKey = e.dataTransfer.getData('text/plain');
+            if (!draggedKey || draggedKey === major) return;
+            
+            // キー順を並び替え
+            const keys = Object.keys(TREE_DATA);
+            const fromIdx = keys.indexOf(draggedKey);
+            const toIdx = keys.indexOf(major);
+            if (fromIdx === -1 || toIdx === -1) return;
+            
+            keys.splice(fromIdx, 1);
+            keys.splice(toIdx, 0, draggedKey);
+            
+            // TREE_DATA を新しいキー順で再構築
+            const newTree = {};
+            keys.forEach(k => { newTree[k] = TREE_DATA[k]; });
+            TREE_DATA = newTree;
+            
+            saveToLocal();
+            renderSidebar(true);
+        });
         
         if (preserveState) {
             if (!openFolders.has('major:' + major)) majorFolder.classList.add('collapsed');
@@ -393,7 +688,26 @@ function renderSidebar(preserveState = false) {
         }
         
         Object.keys(TREE_DATA[major]).forEach(middle => {
-            const middleFolder = createFolder(middle, 'middle-folder');
+            const middleStocks = TREE_DATA[major][middle];
+            const middleCount = middleStocks.length;
+            
+            // GCフォルダの場合、勝率・平均上昇率を色付きで表示
+            let statsHtml = '';
+            if (middle.includes('GC（2年）')) {
+                const rateStocks = middleStocks.filter(s => s.gcRiseRate !== null && s.gcRiseRate !== undefined);
+                if (rateStocks.length > 0) {
+                    const winCount = rateStocks.filter(s => s.gcRiseRate > 0).length;
+                    const winRate = (winCount / rateStocks.length) * 100;
+                    const avgRate = rateStocks.reduce((sum, s) => sum + s.gcRiseRate, 0) / rateStocks.length;
+                    const winClass = winRate >= 50 ? 'positive' : 'negative';
+                    const avgClass = avgRate >= 0 ? 'positive' : 'negative';
+                    statsHtml = ` <span class="folder-stat ${winClass}">勝率${winRate.toFixed(0)}%</span> <span class="folder-stat ${avgClass}">平均${avgRate >= 0 ? '+' : ''}${avgRate.toFixed(1)}%</span>`;
+                }
+            }
+            
+            const middleTitle = `${middle} (${middleCount}件)${statsHtml}`;
+            
+            const middleFolder = createFolder(middleTitle, 'middle-folder', false, major, middle);
             const middleContent = middleFolder.querySelector('.folder-content');
             
             if (preserveState) {
@@ -412,15 +726,21 @@ function renderSidebar(preserveState = false) {
             majorContent.appendChild(middleFolder);
         });
         
-        DOM.list.appendChild(majorFolder);
+        if (major.includes('抽出結果')) {
+            if (DOM.favoriteList) DOM.favoriteList.appendChild(majorFolder);
+        } else {
+            DOM.list.appendChild(majorFolder);
+        }
+        majIdx++;
     });
     
     lucide.createIcons();
 }
 
-function createFolder(title, className) {
+function createFolder(title, className, isMajor = false, majorName = null, middleName = null) {
     const div = document.createElement('div');
     div.className = `folder-item ${className}`;
+    div.dataset.name = isMajor ? majorName : middleName;
     
     div.innerHTML = `
         <div class="folder-header">
@@ -430,11 +750,24 @@ function createFolder(title, className) {
         <div class="folder-content"></div>
     `;
     
-    div.querySelector('.folder-header').onclick = (e) => {
+    const header = div.querySelector('.folder-header');
+    header.onclick = (e) => {
         e.stopPropagation();
         div.classList.toggle('collapsed');
         lucide.createIcons();
     };
+    header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        contextTargetFolder = { isMajor, major: majorName, middle: middleName };
+        
+        if (DOM.folderContextMenu) {
+            DOM.folderContextMenu.style.left = `${e.pageX}px`;
+            DOM.folderContextMenu.style.top = `${e.pageY}px`;
+            DOM.folderContextMenu.classList.remove('hidden');
+        }
+        if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
+    });
     
     return div;
 }
@@ -447,11 +780,13 @@ function createStockItem(stock, index) {
         e.stopPropagation();
         selectStock(index);
     };
-    
     li.addEventListener('contextmenu', (e) => {
         e.preventDefault();
+        e.stopPropagation();
         contextTargetSymbol = stock.symbol;
+        contextTargetStock = stock;
         
+        if (DOM.folderContextMenu) DOM.folderContextMenu.classList.add('hidden');
         if (DOM.contextMenu) {
             DOM.contextMenu.style.left = `${e.pageX}px`;
             DOM.contextMenu.style.top = `${e.pageY}px`;
@@ -463,6 +798,11 @@ function createStockItem(stock, index) {
         <div class="stock-item-left">
             <span class="stock-item-symbol">${stock.symbol.replace('.T', '')}</span>
             <span class="stock-item-name">${stock.name}</span>
+            ${(stock.gcRiseRate !== undefined && stock.gcRiseRate !== null) ? 
+                `<span class="stock-item-rise ${stock.gcRiseRate > 0 ? 'positive' : (stock.gcRiseRate < 0 ? 'negative' : '')}">
+                    ${stock.gcRiseRate > 0 ? '+' : ''}${stock.gcRiseRate.toFixed(1)}%
+                </span>` 
+            : ''}
             ${stock.remarks ? `<span class="stock-item-remarks">${stock.remarks}</span>` : ''}
         </div>
         <i data-lucide="chevron-right" style="color: var(--text-muted); width: 14px;"></i>
@@ -476,10 +816,10 @@ function navigateStock(direction) {
         selectStock(newIndex);
         
         // Ensure its parent folders are expanded
-        const activeItem = DOM.list.querySelector(`.stock-item[data-index="${newIndex}"]`);
+        const activeItem = document.querySelector(`.sidebar .stock-item[data-index="${newIndex}"]`);
         if (activeItem) {
             let parent = activeItem.parentElement;
-            while (parent && parent !== DOM.list) {
+            while (parent && !parent.classList.contains('sidebar')) {
                 if (parent.classList.contains('folder-item')) {
                     parent.classList.remove('collapsed');
                 }
@@ -612,17 +952,17 @@ async function selectStock(index) {
 
 function updateActiveStockUI() {
     // Remove active class from all
-    const items = DOM.list.querySelectorAll('.stock-item');
+    const items = document.querySelectorAll('.sidebar .stock-item');
     items.forEach(item => item.classList.remove('active'));
     
     // Add to current
-    const activeItem = DOM.list.querySelector(`.stock-item[data-index="${currentIndex}"]`);
+    const activeItem = document.querySelector(`.sidebar .stock-item[data-index="${currentIndex}"]`);
     if (activeItem) {
         activeItem.classList.add('active');
         
         // Ensure its parent folders are expanded
         let parent = activeItem.parentElement;
-        while (parent && parent !== DOM.list) {
+        while (parent && !parent.classList.contains('sidebar')) {
             if (parent.classList.contains('folder-item')) {
                 parent.classList.remove('collapsed');
             }
@@ -997,9 +1337,13 @@ async function startGCSearch() {
                     const quotes = stockData.response[0].indicators.quote[0];
                     if (quotes && quotes.close) {
                         const closeData = quotes.close;
+                        const openData = quotes.open || [];
                         let timePrices = [];
                         for (let j = 0; j < closeData.length; j++) {
-                            if (closeData[j] !== null) timePrices.push({ close: closeData[j], time: j });
+                            if (closeData[j] !== null && closeData[j] !== undefined) {
+                                const openVal = (openData[j] !== null && openData[j] !== undefined) ? openData[j] : null;
+                                timePrices.push({ close: closeData[j], open: openVal, time: j });
+                            }
                         }
                         
                         if (timePrices.length > 76) {
@@ -1021,10 +1365,27 @@ async function startGCSearch() {
                                         if (prev10 <= prev20 && curr10 > curr20 && curr10 > prev10 && curr75 >= prev75) {
                                             const orig = STOCKS.find(s => s.symbol === targetSymbol);
                                             if (orig) {
-                                                // コピーして何日前のGCかのフラグを持たせる
+                                                let gcRiseRate = null;
+                                                // 2日以上前のGCのみ計算（前日の終値が存在するため）
+                                                if (n >= 2) {
+                                                    // 歯抜けがない timePrices 配列を基準にする
+                                                    // 前日の終値
+                                                    const prevDayData = timePrices[timePrices.length - 1 - 1];
+                                                    // GC発生日（n日前）の終値を基準値として使用
+                                                    // （Spark APIにはopen値がないため、GC日のcloseで代用）
+                                                    const gcDayData = timePrices[timePrices.length - 1 - n];
+                                                    
+                                                    if (prevDayData && gcDayData && gcDayData.close > 0) {
+                                                        const closePrevDay = prevDayData.close;
+                                                        const closeGCDay = gcDayData.close;
+                                                        gcRiseRate = ((closePrevDay - closeGCDay) / closeGCDay) * 100;
+                                                    }
+                                                }
+                                                
                                                 foundStocks.push({ 
                                                     ...orig,
-                                                    gcDayOffset: n
+                                                    gcDayOffset: n,
+                                                    gcRiseRate: gcRiseRate
                                                 });
                                             }
                                         }
@@ -1203,7 +1564,8 @@ function addSearchResultsToTree(foundStocks) {
         const dayStocks = foundStocks.filter(s => s.gcDayOffset === n);
         
         let dayName = n === 0 ? '本日' : (n === 1 ? '昨日' : `${n}日前`);
-        const searchMiddle = `${dayName}GC（2年）(${dayStocks.length}件)`;
+        
+        const searchMiddle = `${dayName}GC（2年）`;
         
         messageList.push(`${dayName}: ${dayStocks.length}件`);
         
@@ -1225,7 +1587,7 @@ function addSearchResultsToTree(foundStocks) {
     
     // 抽出追加後に該当フォルダを展開する
     setTimeout(() => {
-        const folders = DOM.list.querySelectorAll('.major-folder');
+        const folders = document.querySelectorAll('.sidebar .major-folder');
         folders.forEach(f => {
             const title = f.querySelector('.folder-title').textContent;
             if (title === searchMajor) {
@@ -1336,6 +1698,54 @@ async function fetchJpxStocks() {
     } finally {
         DOM.fetchJpxBtn.disabled = false;
     }
+}
+function initVerticalResizer() {
+    if (!DOM.verticalResizer || !DOM.list.parentElement) return;
+    
+    const upperContainer = document.getElementById('stockListContainer');
+    if (!upperContainer) return;
+    
+    let isResizing = false;
+    let startY = 0;
+    let startHeight = 0;
+    
+    const savedHeight = localStorage.getItem('stock_viewer_upper_height');
+    if (savedHeight) {
+        upperContainer.style.flex = `0 0 ${savedHeight}px`;
+    }
+
+    DOM.verticalResizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startY = e.clientY;
+        startHeight = upperContainer.offsetHeight;
+        
+        DOM.verticalResizer.classList.add('active');
+        document.body.classList.add('v-resizing');
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        
+        const delta = e.clientY - startY;
+        let newHeight = startHeight + delta;
+        
+        if (newHeight < 50) newHeight = 50;
+        
+        const maxH = DOM.sidebar.clientHeight - 100;
+        if (newHeight > maxH) newHeight = maxH;
+        
+        upperContainer.style.flex = `0 0 ${newHeight}px`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            DOM.verticalResizer.classList.remove('active');
+            document.body.classList.remove('v-resizing');
+            
+            localStorage.setItem('stock_viewer_upper_height', upperContainer.offsetHeight);
+        }
+    });
 }
 
 init();

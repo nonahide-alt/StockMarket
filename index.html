@@ -18,13 +18,28 @@
             <div class="sidebar-header">
                 <i data-lucide="trending-up" class="logo-icon"></i>
                 <h1 class="logo-text">StockViewer</h1>
+                <div class="quick-search">
+                    <input id="quickSearchInput" type="text" class="quick-search-input" placeholder="銘柄コード" maxlength="6">
+                    <button id="quickSearchBtn" class="quick-search-btn" title="検索">
+                        <i data-lucide="search"></i>
+                    </button>
+                </div>
             </div>
-            <!-- Stock List Container -->
-            <div id="stockListContainer" class="stock-list-container">
+            <!-- Stock List Container (Upper) -->
+            <div id="stockListContainer" class="stock-list-container" style="flex: 1 1 50%; min-height: 100px;">
                 <ul id="stockList" class="stock-list">
                     <!-- Stocks will be populated dynamically -->
                 </ul>
             </div>
+            <div id="verticalResizer" class="vertical-resizer"></div>
+            
+            <!-- Favorite List Container (Lower) -->
+            <div id="favoriteListContainer" class="stock-list-container" style="flex: 1 1 50%; min-height: 100px; border-top: 1px solid rgba(0,0,0,0.5); background: rgba(0,0,0,0.15);">
+                <ul id="favoriteList" class="stock-list">
+                    <!-- Favorite stocks will be populated dynamically -->
+                </ul>
+            </div>
+            
             <div class="sidebar-footer">
                 <div class="footer-item" id="openSettingsBtn" title="設定">
                     <i data-lucide="settings" class="footer-icon"></i>
@@ -104,7 +119,8 @@
                         ・前日は MA10 ≦ MA20 だった（まだクロス前）<br>
                         ・当日に MA10 が MA20 を上抜けた（ゴールデンクロス発生）<br>
                         ・MA10 自体が上向き（前日より上昇）<br>
-                        ・MA75 が前日の値以上（上向きまたは横ばい）</p>
+                        ・MA75 が前日の値以上（上向きまたは横ばい）<br>
+                        <span style="display: block; margin-top: 6px;">※2取引日前以前に発生したGC銘柄については、GC発生日の「終値」から「前日の終値」までの上昇率が計算され、銘柄名の右横に色付き（プラスなら緑、マイナスなら赤）で表示されます。</span></p>
                         
                         <div class="settings-actions">
                             <button id="runGCBtn" class="action-btn primary">
@@ -243,6 +259,22 @@
             </li>
             <li id="ctxKabutan" class="context-menu-item">
                 <i class="external-icon">K</i> 株探で開く
+            </li>
+            <li class="context-menu-separator"></li>
+            <li id="ctxDelete" class="context-menu-item" style="color: var(--negative);">
+                <i data-lucide="trash-2"></i> リストから削除
+            </li>
+        </ul>
+    </div>
+
+    <div id="folderContextMenu" class="context-menu hidden">
+        <ul class="context-menu-list">
+            <li id="ctxFolderRename" class="context-menu-item">
+                <i data-lucide="edit-2"></i> フォルダ名変更
+            </li>
+            <li class="context-menu-separator"></li>
+            <li id="ctxFolderDelete" class="context-menu-item" style="color: var(--negative);">
+                <i data-lucide="trash-2"></i> フォルダ削除
             </li>
         </ul>
     </div>
