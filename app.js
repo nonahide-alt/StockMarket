@@ -903,6 +903,7 @@ function renderSidebar(preserveState = false) {
         majorFolder.dataset.majorKey = major;
         majorFolder.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', major);
+            e.dataTransfer.setData('drag-type', 'major');
             majorFolder.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'move';
         });
@@ -913,21 +914,55 @@ function renderSidebar(preserveState = false) {
         majorFolder.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
-            const dragging = majorFolder.parentElement?.querySelector('.dragging');
-            if (dragging && dragging !== majorFolder) {
-                majorFolder.classList.add('drag-over');
-            }
+            majorFolder.classList.add('drag-over');
         });
         majorFolder.addEventListener('dragleave', () => {
             majorFolder.classList.remove('drag-over');
         });
         majorFolder.addEventListener('drop', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             majorFolder.classList.remove('drag-over');
+            
+            const dragType = e.dataTransfer.getData('drag-type');
             const draggedKey = e.dataTransfer.getData('text/plain');
+            
+            if (dragType === 'middle') {
+                // 中フォルダを別の大フォルダへ移動
+                const [srcMajor, srcMiddle] = draggedKey.split('|||');
+                if (!srcMajor || !srcMiddle) return;
+                if (srcMajor === major) return; // 同じ大フォルダ内は無視
+                
+                // 移動先に同名の中フォルダがある場合
+                if (TREE_DATA[major][srcMiddle]) {
+                    if (!confirm(`「${major}」には既に「${srcMiddle}」が存在します。統合しますか？`)) return;
+                    // 統合: 銘柄を移動先に追加
+                    const movingStocks = TREE_DATA[srcMajor][srcMiddle] || [];
+                    movingStocks.forEach(s => {
+                        s.major = major;
+                        TREE_DATA[major][srcMiddle].push(s);
+                    });
+                } else {
+                    // 新規移動
+                    const movingStocks = TREE_DATA[srcMajor][srcMiddle] || [];
+                    movingStocks.forEach(s => { s.major = major; });
+                    TREE_DATA[major][srcMiddle] = movingStocks;
+                }
+                
+                // 元の大フォルダから削除
+                delete TREE_DATA[srcMajor][srcMiddle];
+                if (Object.keys(TREE_DATA[srcMajor]).length === 0) {
+                    delete TREE_DATA[srcMajor];
+                }
+                
+                saveToLocal();
+                renderSidebar(true);
+                return;
+            }
+            
+            // 大フォルダの並び替え（既存処理）
             if (!draggedKey || draggedKey === major) return;
             
-            // キー順を並び替え
             const keys = Object.keys(TREE_DATA);
             const fromIdx = keys.indexOf(draggedKey);
             const toIdx = keys.indexOf(major);
@@ -936,7 +971,6 @@ function renderSidebar(preserveState = false) {
             keys.splice(fromIdx, 1);
             keys.splice(toIdx, 0, draggedKey);
             
-            // TREE_DATA を新しいキー順で再構築
             const newTree = {};
             keys.forEach(k => { newTree[k] = TREE_DATA[k]; });
             TREE_DATA = newTree;
@@ -974,6 +1008,20 @@ function renderSidebar(preserveState = false) {
             
             const middleFolder = createFolder(middleTitle, 'middle-folder', false, major, middle);
             const middleContent = middleFolder.querySelector('.folder-content');
+            
+            // 中フォルダのドラッグ対応
+            middleFolder.draggable = true;
+            middleFolder.addEventListener('dragstart', (e) => {
+                e.stopPropagation(); // 大フォルダへの伝播を防止
+                e.dataTransfer.setData('text/plain', `${major}|||${middle}`);
+                e.dataTransfer.setData('drag-type', 'middle');
+                middleFolder.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+            middleFolder.addEventListener('dragend', () => {
+                middleFolder.classList.remove('dragging');
+                document.querySelectorAll('.folder-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+            });
             
             if (preserveState) {
                 if (!openFolders.has('middle:' + middle)) middleFolder.classList.add('collapsed');
