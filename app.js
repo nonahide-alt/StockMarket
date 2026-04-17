@@ -57,7 +57,12 @@ const DOM = {
     ctxKabuyoho: document.getElementById('ctxKabuyoho'),
     ctxAiPrompt: document.getElementById('ctxAiPrompt'),
     ctxDelete: document.getElementById('ctxDelete'),
+    ctxSendToFolder: document.getElementById('ctxSendToFolder'),
+    folderSendSubMenu: document.getElementById('folderSendSubMenu'),
+    middleSendSubMenu: document.getElementById('middleSendSubMenu'),
     folderContextMenu: document.getElementById('folderContextMenu'),
+    ctxFolderCreate: document.getElementById('ctxFolderCreate'),
+    ctxMajorFolderCreate: document.getElementById('ctxMajorFolderCreate'),
     ctxFolderRename: document.getElementById('ctxFolderRename'),
     ctxFolderDelete: document.getElementById('ctxFolderDelete'),
     // Backtest
@@ -231,12 +236,17 @@ async function init() {
         
         // Context Menu App-wide events
         document.addEventListener('click', (e) => {
+            // サブメニュー内のクリックは無視する
+            if (DOM.folderSendSubMenu && DOM.folderSendSubMenu.contains(e.target)) return;
+            if (DOM.middleSendSubMenu && DOM.middleSendSubMenu.contains(e.target)) return;
+            
             if (DOM.contextMenu && !DOM.contextMenu.classList.contains('hidden')) {
                 DOM.contextMenu.classList.add('hidden');
             }
             if (DOM.folderContextMenu && !DOM.folderContextMenu.classList.contains('hidden')) {
                 DOM.folderContextMenu.classList.add('hidden');
             }
+            hideAllSubMenus();
         });
         
         if (DOM.sidebar) {
@@ -247,6 +257,7 @@ async function init() {
                 if (DOM.folderContextMenu && !DOM.folderContextMenu.classList.contains('hidden')) {
                     DOM.folderContextMenu.classList.add('hidden');
                 }
+                hideAllSubMenus();
             });
         }
         
@@ -353,6 +364,14 @@ async function init() {
                     }
                 }
             };
+        }
+
+        // ---- フォルダへ送る ----
+        if (DOM.ctxSendToFolder) {
+            DOM.ctxSendToFolder.addEventListener('mouseenter', (e) => {
+                hideAllSubMenus();
+                showFolderSendMenu(DOM.ctxSendToFolder);
+            });
         }
 
         if (DOM.ctxYahoo) {
@@ -471,6 +490,71 @@ ai_overall_view( 成長型 / 安定型 / 市況連動 / 再建型 など)`;
             };
         }
         
+        if (DOM.ctxMajorFolderCreate) {
+            DOM.ctxMajorFolderCreate.onclick = () => {
+                if (DOM.folderContextMenu) DOM.folderContextMenu.classList.add('hidden');
+                
+                const newName = prompt('新しい大フォルダ名を入力してください:');
+                if (!newName || !newName.trim()) return;
+                const trimmedName = newName.trim();
+                
+                if (TREE_DATA[trimmedName]) {
+                    alert(`「${trimmedName}」は既に存在します。`);
+                    return;
+                }
+                
+                TREE_DATA[trimmedName] = { '共通': [] };
+                
+                saveToLocal();
+                renderSidebar(true);
+                
+                // 作成した大フォルダを展開
+                document.querySelectorAll('.sidebar .major-folder').forEach(f => {
+                    if (f.dataset.name === trimmedName) f.classList.remove('collapsed');
+                });
+            };
+        }
+
+        if (DOM.ctxFolderCreate) {
+            DOM.ctxFolderCreate.onclick = () => {
+                if (DOM.folderContextMenu) DOM.folderContextMenu.classList.add('hidden');
+                if (!contextTargetFolder.major) return;
+                
+                const { isMajor, major, middle } = contextTargetFolder;
+                const parentMajor = major;
+                
+                const newName = prompt('新しいフォルダ名を入力してください:');
+                if (!newName || !newName.trim()) return;
+                const trimmedName = newName.trim();
+                
+                if (isMajor) {
+                    // 大フォルダ右クリック → その下に中フォルダを作成
+                    if (!TREE_DATA[parentMajor]) TREE_DATA[parentMajor] = {};
+                    if (TREE_DATA[parentMajor][trimmedName]) {
+                        alert(`「${trimmedName}」は既に存在します。`);
+                        return;
+                    }
+                    TREE_DATA[parentMajor][trimmedName] = [];
+                } else {
+                    // 中フォルダ右クリック → 同じ大フォルダ直下に中フォルダを作成
+                    if (!TREE_DATA[parentMajor]) TREE_DATA[parentMajor] = {};
+                    if (TREE_DATA[parentMajor][trimmedName]) {
+                        alert(`「${trimmedName}」は既に存在します。`);
+                        return;
+                    }
+                    TREE_DATA[parentMajor][trimmedName] = [];
+                }
+                
+                saveToLocal();
+                renderSidebar(true);
+                
+                // 作成先の大フォルダを展開
+                document.querySelectorAll('.sidebar .major-folder').forEach(f => {
+                    if (f.dataset.name === parentMajor) f.classList.remove('collapsed');
+                });
+            };
+        }
+
         if (DOM.ctxFolderRename) {
             DOM.ctxFolderRename.onclick = () => {
                 if (DOM.folderContextMenu) DOM.folderContextMenu.classList.add('hidden');
@@ -529,8 +613,9 @@ ai_overall_view( 成長型 / 安定型 / 市況連動 / 再建型 など)`;
                             }
                         }
                     }
+                    const treeChanged = (isMajor && !TREE_DATA[major]) || (!isMajor && (!TREE_DATA[major] || !TREE_DATA[major][middle]));
                     
-                    if (STOCKS.length !== initialCount) {
+                    if (STOCKS.length !== initialCount || treeChanged) {
                         saveToLocal();
                         // 修正されたcurrentIndexのために現在の状態を確認
                         if (!STOCKS[currentIndex]) {
@@ -654,6 +739,14 @@ function saveToLocal() {
         const nameToSave = s.isChecked ? '✔ ' + s.name : s.name;
         csvContent += `${s.major},${s.middle},${codeBase},${nameToSave},${s.remarks}\n`;
     });
+    // 空フォルダも永続化する
+    Object.keys(TREE_DATA).forEach(major => {
+        Object.keys(TREE_DATA[major]).forEach(middle => {
+            if (TREE_DATA[major][middle].length === 0) {
+                csvContent += `${major},${middle},,,\n`;
+            }
+        });
+    });
     localStorage.setItem(STORAGE_KEY, csvContent);
     saveToServer(csvContent);
 }
@@ -676,7 +769,14 @@ function parseCSV(text) {
         if (parts.length < 4) return;
         
         const [major, middle, code, name, remarks] = parts;
-        if (!code) return;
+        if (!code) {
+            // 空フォルダエントリ: コードが空でも大分類・中分類があればフォルダ構造を作成
+            if (major && middle) {
+                if (!TREE_DATA[major]) TREE_DATA[major] = {};
+                if (!TREE_DATA[major][middle]) TREE_DATA[major][middle] = [];
+            }
+            return;
+        }
         
         const symbol = (code.includes('.') || code.startsWith('^') || code.includes('=') || code.includes('-')) ? code : code + '.T';
         let isChecked = false;
@@ -976,6 +1076,152 @@ function createStockItem(stock, index) {
         <i data-lucide="chevron-right" style="color: var(--text-muted); width: 14px;"></i>
     `;
     return li;
+}
+
+// ---- フォルダへ送る：サブメニュー関連 ----
+
+function hideAllSubMenus() {
+    if (DOM.folderSendSubMenu) DOM.folderSendSubMenu.classList.add('hidden');
+    if (DOM.middleSendSubMenu) DOM.middleSendSubMenu.classList.add('hidden');
+}
+
+function positionSubMenu(anchor, submenu, level) {
+    const anchorRect = anchor.getBoundingClientRect();
+    submenu.style.position = 'fixed';
+    
+    // level=0: コンテキストメニュー項目の右側, level=1: 大フォルダ項目の右側
+    let left = anchorRect.right + 2;
+    let top = anchorRect.top;
+    
+    // 画面外にはみ出す場合は左側に表示
+    submenu.classList.remove('hidden');
+    const menuWidth = submenu.offsetWidth || 200;
+    const menuHeight = submenu.offsetHeight || 300;
+    
+    if (left + menuWidth > window.innerWidth) {
+        left = anchorRect.left - menuWidth - 2;
+    }
+    if (top + menuHeight > window.innerHeight) {
+        top = Math.max(4, window.innerHeight - menuHeight - 4);
+    }
+    
+    submenu.style.left = `${left}px`;
+    submenu.style.top = `${top}px`;
+}
+
+function showFolderSendMenu(anchorEl) {
+    const sub = DOM.folderSendSubMenu;
+    if (!sub) return;
+    
+    sub.innerHTML = '';
+    
+    const majorKeys = Object.keys(TREE_DATA);
+    if (majorKeys.length === 0) {
+        sub.innerHTML = '<div class="submenu-item" style="color: var(--text-muted); pointer-events:none;">フォルダがありません</div>';
+        positionSubMenu(anchorEl, sub, 0);
+        return;
+    }
+    
+    majorKeys.forEach(major => {
+        const item = document.createElement('div');
+        item.className = 'submenu-item has-sub';
+        const middleCount = Object.keys(TREE_DATA[major]).length;
+        item.innerHTML = `
+            <span style="display:flex;align-items:center;gap:8px;overflow:hidden;">
+                <span class="folder-emoji">📁</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;">${major}</span>
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="sub-icon"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        `;
+        
+        item.addEventListener('mouseenter', () => {
+            // 既存の中フォルダサブメニューを閉じてから新しく開く
+            if (DOM.middleSendSubMenu) DOM.middleSendSubMenu.classList.add('hidden');
+            showMiddleSendMenu(item, major);
+        });
+        
+        sub.appendChild(item);
+    });
+    
+    positionSubMenu(anchorEl, sub, 0);
+}
+
+function showMiddleSendMenu(anchorEl, majorName) {
+    const sub = DOM.middleSendSubMenu;
+    if (!sub) return;
+    
+    sub.innerHTML = '';
+    
+    const middles = TREE_DATA[majorName];
+    if (!middles) return;
+    
+    const middleKeys = Object.keys(middles);
+    
+    middleKeys.forEach(middle => {
+        const stockCount = middles[middle].length;
+        const item = document.createElement('div');
+        item.className = 'submenu-item';
+        item.innerHTML = `
+            <span style="display:flex;align-items:center;gap:8px;overflow:hidden;">
+                <span class="folder-emoji">📂</span>
+                <span style="overflow:hidden;text-overflow:ellipsis;">${middle}</span>
+            </span>
+            <span style="font-size:11px;color:var(--text-muted);flex-shrink:0;">${stockCount}件</span>
+        `;
+        
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sendStockToFolder(majorName, middle);
+        });
+        
+        sub.appendChild(item);
+    });
+    
+    positionSubMenu(anchorEl, sub, 1);
+}
+
+function sendStockToFolder(majorName, middleName) {
+    if (!contextTargetSymbol || !contextTargetStock) return;
+    
+    // 重複チェック
+    const exists = STOCKS.some(s => 
+        s.symbol === contextTargetSymbol && 
+        s.major === majorName && 
+        s.middle === middleName
+    );
+    
+    if (exists) {
+        alert(`${contextTargetStock.name} は既に「${majorName} > ${middleName}」に登録されています。`);
+        hideAllSubMenus();
+        if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
+        return;
+    }
+    
+    const newStock = { 
+        ...contextTargetStock, 
+        major: majorName, 
+        middle: middleName 
+    };
+    
+    STOCKS.push(newStock);
+    
+    if (!TREE_DATA[majorName]) TREE_DATA[majorName] = {};
+    if (!TREE_DATA[majorName][middleName]) TREE_DATA[majorName][middleName] = [];
+    TREE_DATA[majorName][middleName].push(newStock);
+    
+    saveToLocal();
+    renderSidebar(true);
+    
+    // 送り先フォルダを展開
+    document.querySelectorAll('.sidebar .major-folder').forEach(f => {
+        if (f.dataset.name === majorName) f.classList.remove('collapsed');
+    });
+    document.querySelectorAll('.sidebar .middle-folder').forEach(f => {
+        if (f.dataset.name === middleName) f.classList.remove('collapsed');
+    });
+    
+    hideAllSubMenus();
+    if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
 }
 
 function navigateStock(direction) {

@@ -1046,3 +1046,76 @@ body.v-resizing .vertical-resizer {
 .folder-item.drag-over {
     border-top: 2px solid var(--accent-color);
 }
+
+/* ---------------- Send-to-Folder Sub Menu ---------------- */
+.context-menu-has-sub {
+    position: relative;
+    justify-content: space-between;
+}
+
+.context-menu-has-sub .sub-arrow {
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.context-submenu {
+    max-height: 360px;
+    overflow-y: auto;
+    min-width: 200px;
+}
+
+.context-submenu::-webkit-scrollbar {
+    width: 5px;
+}
+.context-submenu::-webkit-scrollbar-track {
+    background: transparent;
+}
+.context-submenu::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 10px;
+}
+
+.context-submenu .submenu-item {
+    padding: 9px 16px;
+    font-size: 13px;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background 0.15s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.context-submenu .submenu-item:hover {
+    background: var(--bg-surface-hover);
+}
+
+.context-submenu .submenu-item.has-sub {
+    justify-content: space-between;
+}
+
+.context-submenu .submenu-item .sub-icon {
+    width: 14px;
+    height: 14px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.context-submenu .submenu-item .folder-emoji {
+    flex-shrink: 0;
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+}
+
+.context-submenu .submenu-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 0;
+}

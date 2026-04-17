@@ -265,6 +265,10 @@
             <li id="ctxCheckMark" class="context-menu-item">
                 <i data-lucide="check-circle-2"></i> チェック
             </li>
+            <li id="ctxSendToFolder" class="context-menu-item context-menu-has-sub">
+                <i data-lucide="folder-input"></i> フォルダへ送る
+                <i data-lucide="chevron-right" class="sub-arrow"></i>
+            </li>
             <li class="context-menu-separator"></li>
             <li id="ctxYahoo" class="context-menu-item">
                 <i class="external-icon">Y!</i> Yahoo!業績で開く
@@ -291,6 +295,12 @@
 
     <div id="folderContextMenu" class="context-menu hidden">
         <ul class="context-menu-list">
+            <li id="ctxMajorFolderCreate" class="context-menu-item">
+                <i data-lucide="folder-plus"></i> 大フォルダ作成
+            </li>
+            <li id="ctxFolderCreate" class="context-menu-item">
+                <i data-lucide="folder-plus"></i> サブフォルダ作成
+            </li>
             <li id="ctxFolderRename" class="context-menu-item">
                 <i data-lucide="edit-2"></i> フォルダ名変更
             </li>
@@ -300,6 +310,10 @@
             </li>
         </ul>
     </div>
+
+    <!-- フォルダへ送る：サブメニュー -->
+    <div id="folderSendSubMenu" class="context-menu context-submenu hidden"></div>
+    <div id="middleSendSubMenu" class="context-menu context-submenu hidden"></div>
 
     <!-- Scripts -->
     <!-- SheetJS for JPX Excel parsing -->
