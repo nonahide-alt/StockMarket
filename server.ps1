@@ -1,4 +1,6 @@
-$port = 8888
+param(
+    [int]$port = 8080
+)
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://localhost:$port/")
 try {
@@ -23,6 +25,37 @@ try {
 
         $urlPath = $request.Url.LocalPath.TrimStart('/')
         if ($urlPath -eq "") { $urlPath = "index.html" }
+        
+        if ($urlPath -eq "api/save") {
+            if ($request.HttpMethod -eq "POST") {
+                try {
+                    $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                    $content = $reader.ReadToEnd()
+                    $reader.Close()
+                    
+                    if ($content) {
+                        $content | Out-File -FilePath (Join-Path (Get-Location) "meigara.csv") -Encoding utf8 -NoNewline
+                        Write-Host "200 - Saved meigara.csv" -ForegroundColor Green
+                        
+                        $response.StatusCode = 200
+                        $msg = [System.Text.Encoding]::UTF8.GetBytes("Saved successfully")
+                        $response.ContentLength64 = $msg.Length
+                        $response.OutputStream.Write($msg, 0, $msg.Length)
+                        $response.OutputStream.Close()
+                    } else {
+                        throw "Empty content"
+                    }
+                } catch {
+                    Write-Host "500 - Save Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                    $response.StatusCode = 500
+                    $response.Close()
+                }
+            } else {
+                $response.StatusCode = 405 # Method Not Allowed
+                $response.Close()
+            }
+            continue
+        }
         
         # Proxy to Yahoo Finance API
         if ($urlPath -eq "api/yahoo") {

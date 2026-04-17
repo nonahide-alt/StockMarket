@@ -204,6 +204,15 @@
                         <button id="refreshChartBtn" class="refresh-btn" title="チャートを再表示">
                             <i data-lucide="refresh-cw"></i>
                         </button>
+                        
+                        <!-- Toggle for Auto Copy -->
+                        <div class="auto-copy-toggle" style="margin-left: 20px; display: flex; align-items: center; gap: 6px;">
+                            <span style="font-size: 11px; color: var(--text-muted); cursor: default;">コード自動コピー</span>
+                            <label class="switch">
+                                <input type="checkbox" id="autoCopyToggle">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <div class="header-right">
@@ -250,6 +259,12 @@
             <li id="ctxFavorite" class="context-menu-item">
                 <i data-lucide="star"></i> 一時調査候補に登録
             </li>
+            <li id="ctxRealFavorite" class="context-menu-item">
+                <i data-lucide="heart"></i> ★お気に入りへ登録
+            </li>
+            <li id="ctxCheckMark" class="context-menu-item">
+                <i data-lucide="check-circle-2"></i> チェック
+            </li>
             <li class="context-menu-separator"></li>
             <li id="ctxYahoo" class="context-menu-item">
                 <i class="external-icon">Y!</i> Yahoo!業績で開く
@@ -262,6 +277,10 @@
             </li>
             <li id="ctxKabuyoho" class="context-menu-item">
                 <i class="external-icon">予</i> 株予報で開く
+            </li>
+            <li class="context-menu-separator"></li>
+            <li id="ctxAiPrompt" class="context-menu-item">
+                <i data-lucide="clipboard-copy"></i> AI指示プロンプトコピー
             </li>
             <li class="context-menu-separator"></li>
             <li id="ctxDelete" class="context-menu-item" style="color: var(--negative);">

@@ -49,10 +49,13 @@ const DOM = {
     // Context Menu
     contextMenu: document.getElementById('contextMenu'),
     ctxFavorite: document.getElementById('ctxFavorite'),
+    ctxRealFavorite: document.getElementById('ctxRealFavorite'),
+    ctxCheckMark: document.getElementById('ctxCheckMark'),
     ctxYahoo: document.getElementById('ctxYahoo'),
     ctxNikkei: document.getElementById('ctxNikkei'),
     ctxKabutan: document.getElementById('ctxKabutan'),
     ctxKabuyoho: document.getElementById('ctxKabuyoho'),
+    ctxAiPrompt: document.getElementById('ctxAiPrompt'),
     ctxDelete: document.getElementById('ctxDelete'),
     folderContextMenu: document.getElementById('folderContextMenu'),
     ctxFolderRename: document.getElementById('ctxFolderRename'),
@@ -70,7 +73,9 @@ const DOM = {
     btMedianReturn: document.getElementById('btMedianReturn'),
     // Quick Search
     quickSearchInput: document.getElementById('quickSearchInput'),
-    quickSearchBtn: document.getElementById('quickSearchBtn')
+    quickSearchBtn: document.getElementById('quickSearchBtn'),
+    // Settings & Toggles
+    autoCopyToggle: document.getElementById('autoCopyToggle')
 };
 
 const STORAGE_KEY = 'stock_viewer_custom_data';
@@ -211,6 +216,19 @@ async function init() {
             });
         }
         
+        // Auto Copy Toggle initialization
+        if (DOM.autoCopyToggle) {
+            const savedState = localStorage.getItem('auto_copy_enabled');
+            if (savedState !== null) {
+                DOM.autoCopyToggle.checked = savedState === 'true';
+            }
+            DOM.autoCopyToggle.onchange = (e) => {
+                localStorage.setItem('auto_copy_enabled', e.target.checked);
+            };
+        }
+
+
+        
         // Context Menu App-wide events
         document.addEventListener('click', (e) => {
             if (DOM.contextMenu && !DOM.contextMenu.classList.contains('hidden')) {
@@ -257,10 +275,10 @@ async function init() {
                         
                         // 一時調査候補の大・中フォルダを強制的に展開する
                         document.querySelectorAll('.sidebar .major-folder').forEach(f => {
-                            if (f.querySelector('.folder-title').textContent === favMajor) f.classList.remove('collapsed');
+                            if (f.dataset.name === favMajor) f.classList.remove('collapsed');
                         });
                         document.querySelectorAll('.sidebar .middle-folder').forEach(f => {
-                            if (f.querySelector('.folder-title').textContent === favMiddle) f.classList.remove('collapsed');
+                            if (f.dataset.name === favMiddle) f.classList.remove('collapsed');
                         });
                         
                     } else {
@@ -269,6 +287,74 @@ async function init() {
                 }
             };
         }
+
+        if (DOM.ctxRealFavorite) {
+            DOM.ctxRealFavorite.onclick = () => {
+                if (!contextTargetSymbol) return;
+                const targetStock = STOCKS.find(s => s.symbol === contextTargetSymbol);
+                if (targetStock) {
+                    const favMajor = '★ お気に入り';
+                    const favMiddle = '登録済み';
+                    
+                    const exists = STOCKS.some(s => s.symbol === contextTargetSymbol && s.major === favMajor);
+                    if (!exists) {
+                        const newStock = { ...targetStock, major: favMajor, middle: favMiddle };
+                        STOCKS.push(newStock);
+                        
+                        // TREE_DATAにも追加する
+                        if (!TREE_DATA[favMajor]) TREE_DATA[favMajor] = {};
+                        if (!TREE_DATA[favMajor][favMiddle]) TREE_DATA[favMajor][favMiddle] = [];
+                        TREE_DATA[favMajor][favMiddle].push(newStock);
+                        
+                        saveToLocal();
+                        renderSidebar(true);
+                        
+                        // お気に入りの大・中フォルダを強制的に展開する
+                        document.querySelectorAll('.sidebar .major-folder').forEach(f => {
+                            if (f.dataset.name === favMajor) f.classList.remove('collapsed');
+                        });
+                        document.querySelectorAll('.sidebar .middle-folder').forEach(f => {
+                            if (f.dataset.name === favMiddle) f.classList.remove('collapsed');
+                        });
+                        
+                    } else {
+                        alert("すでにお気に入りに登録されています。");
+                    }
+                }
+            };
+        }
+        if (DOM.ctxCheckMark) {
+            DOM.ctxCheckMark.onclick = () => {
+                if (!contextTargetSymbol) return;
+                
+                const matches = STOCKS.filter(s => s.symbol === contextTargetSymbol);
+                if (matches.length > 0) {
+                    const hasCheck = matches[0].isChecked || false;
+                    
+                    matches.forEach(s => {
+                        s.isChecked = !hasCheck;
+                    });
+                    
+                    saveToLocal();
+                    renderSidebar(true);
+                    
+                    // Update header if this stock is currently active
+                    if (DOM.symbol && DOM.symbol.textContent.trim() === contextTargetSymbol.replace('.T', '')) {
+                        const activeStock = STOCKS.find(s => s.symbol === contextTargetSymbol);
+                        if (activeStock) {
+                            let textOnly = DOM.name.textContent.replace(/^✔\s*/, '').trim();
+                            if (activeStock.isChecked) {
+                                DOM.name.innerHTML = `<i data-lucide="check-circle-2" style="color: var(--accent-color); width: 22px; height: 22px; margin-right: 6px; vertical-align: text-bottom;"></i>${textOnly}`;
+                            } else {
+                                DOM.name.textContent = textOnly;
+                            }
+                            lucide.createIcons({root: DOM.name.parentElement});
+                        }
+                    }
+                }
+            };
+        }
+
         if (DOM.ctxYahoo) {
             DOM.ctxYahoo.onclick = () => {
                 if (!contextTargetSymbol) return;
@@ -295,6 +381,36 @@ async function init() {
                 if (!contextTargetSymbol) return;
                 const code = contextTargetSymbol.replace('.T', '');
                 window.open(`https://kabuyoho.ifis.co.jp/index.php?id=100&action=tp1&sa=report&bcode=${code}`, '_blank');
+            };
+        }
+        if (DOM.ctxAiPrompt) {
+            DOM.ctxAiPrompt.onclick = () => {
+                if (!contextTargetSymbol) return;
+                const code = contextTargetSymbol.replace('.T', '');
+                
+                const promptText = `東京市場の銘柄コード${code}で下記情報をまとめて
+銘柄コード
+会社名
+market（プライム / スタンダード / グロース）
+industry_jpx（東証業種）
+事業要約
+主力事業（最大3つ、簡潔）
+代表的な製品・サービス（簡潔）
+業種
+ROEレベル(高 / 中 / 低 / 赤字)
+財務状況(安定 / 標準 / 不安定)
+Earningsトレンド(成長 / 横ばい / 減少)
+主要リスク(通常 / 監理銘柄 / 整理銘柄)
+アナリストコンセンサス(強気 / 中立 / 弱気 / 不明)
+ai_overall_view( 成長型 / 安定型 / 市況連動 / 再建型 など)`;
+
+                navigator.clipboard.writeText(promptText).then(() => {
+                    if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
+                    alert('AI指示プロンプトをクリップボードにコピーしました。');
+                }).catch(err => {
+                    console.error('クリップボードコピーに失敗しました', err);
+                    alert('コピーに失敗しました。');
+                });
             };
         }
         if (DOM.ctxDelete) {
@@ -436,14 +552,7 @@ async function init() {
             };
         }
 
-        // Try load custom data
-        const customData = localStorage.getItem(STORAGE_KEY);
-        if (customData) {
-            parseCSV(customData);
-        } else {
-            // Load default meigara.csv
-            loadDefaultData();
-        }
+
 
         DOM.refreshChartBtn.onclick = () => {
             resizeChart();
@@ -489,28 +598,52 @@ async function init() {
 }
 
 async function loadMeigaraData() {
-    let csvText = '';
-    const cachedData = localStorage.getItem(STORAGE_KEY);
-    
-    if (cachedData) {
-        csvText = cachedData;
-    } else {
-        const response = await fetch('meigara.csv');
-        csvText = await response.text();
+    try {
+        // ALWAYS fetch from server first to keep all browsers in sync
+        const response = await fetch('meigara.csv?t=' + Date.now()); // Add timestamp to avoid cache
+        if (!response.ok) throw new Error('File not found');
+        const csvText = await response.text();
+        
+        if (csvText && csvText.trim().length > 0) {
+            parseCSV(csvText);
+            // Sync to local storage as backup
+            localStorage.setItem(STORAGE_KEY, csvText);
+            renderSidebar();
+            return;
+        }
+    } catch (e) {
+        console.warn('Failed to load from server, falling back to LocalStorage:', e);
     }
-    
-    parseCSV(csvText);
+
+    // Fallback to LocalStorage
+    const cachedData = localStorage.getItem(STORAGE_KEY);
+    if (cachedData) {
+        parseCSV(cachedData);
+    }
     renderSidebar();
 }
 
 // ---- Data Persistence Functions ----
+async function saveToServer(csvContent) {
+    try {
+        await fetch('/api/save', {
+            method: 'POST',
+            body: csvContent
+        });
+    } catch (e) {
+        console.error('Failed to save to server:', e);
+    }
+}
+
 function saveToLocal() {
     let csvContent = '大分類,中分類,銘柄コード,銘柄名,備考\n';
     STOCKS.forEach(s => {
         const codeBase = s.symbol.replace('.T', '');
-        csvContent += `${s.major},${s.middle},${codeBase},${s.name},${s.remarks}\n`;
+        const nameToSave = s.isChecked ? '✔ ' + s.name : s.name;
+        csvContent += `${s.major},${s.middle},${codeBase},${nameToSave},${s.remarks}\n`;
     });
     localStorage.setItem(STORAGE_KEY, csvContent);
+    saveToServer(csvContent);
 }
 
 function parseCSV(text) {
@@ -534,10 +667,18 @@ function parseCSV(text) {
         if (!code) return;
         
         const symbol = (code.includes('.') || code.startsWith('^') || code.includes('=') || code.includes('-')) ? code : code + '.T';
+        let isChecked = false;
+        let cleanName = name;
+        if (cleanName.startsWith('✔ ')) {
+            isChecked = true;
+            cleanName = cleanName.replace(/^✔\s*/, '');
+        }
+
         const stock = { 
             symbol, 
-            name, 
-            originalName: name, // Store CSV name
+            name: cleanName, 
+            originalName: cleanName, // Store CSV name
+            isChecked: isChecked,
             remarks: remarks || '',
             major: major || 'その他',
             middle: middle || '共通'
@@ -556,7 +697,8 @@ function exportCSV() {
     let csvContent = '\uFEFF大分類,中分類,銘柄コード,銘柄名,備考\n';
     STOCKS.forEach(s => {
         const code = s.symbol.replace('.T', '');
-        csvContent += `${s.major},${s.middle},${code},${s.name},${s.remarks}\n`;
+        const nameToExport = s.isChecked ? '✔ ' + s.name : s.name;
+        csvContent += `${s.major},${s.middle},${code},${nameToExport},${s.remarks}\n`;
     });
     
     // Format: StockView_YYYYMMDD_HHMMSS.csv
@@ -584,10 +726,11 @@ function importCSV(file) {
     if (!file) return;
     
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         try {
             const text = e.target.result;
             localStorage.setItem(STORAGE_KEY, text);
+            await saveToServer(text);
             parseCSV(text);
             renderSidebar();
             
@@ -607,6 +750,8 @@ function importCSV(file) {
 function resetData() {
     if (confirm('すべてのカスタムデータを削除してデフォルトに戻しますか？')) {
         localStorage.removeItem(STORAGE_KEY);
+        // We don't delete meigara.csv on server, but it will be re-fetched next time.
+        // If we want a REAL reset, we'd need a server-side reset too.
         location.reload();
     }
 }
@@ -805,7 +950,10 @@ function createStockItem(stock, index) {
     li.innerHTML = `
         <div class="stock-item-left">
             <span class="stock-item-symbol">${stock.symbol.replace('.T', '')}</span>
-            <span class="stock-item-name">${stock.name}</span>
+            <span class="stock-item-name">
+                ${stock.isChecked ? '<i data-lucide="check-circle-2" style="color: var(--accent-color); width: 14px; height: 14px; margin-right: 4px; vertical-align: text-bottom;"></i>' : ''}
+                ${stock.name}
+            </span>
             ${(stock.gcRiseRate !== undefined && stock.gcRiseRate !== null) ? 
                 `<span class="stock-item-rise ${stock.gcRiseRate > 0 ? 'positive' : (stock.gcRiseRate < 0 ? 'negative' : '')}">
                     ${stock.gcRiseRate > 0 ? '+' : ''}${stock.gcRiseRate.toFixed(1)}%
@@ -943,6 +1091,12 @@ async function selectStock(index) {
     const stock = STOCKS[currentIndex];
     if (!stock) return;
 
+    if (DOM.autoCopyToggle && DOM.autoCopyToggle.checked) {
+        const code = stock.symbol.replace('.T', '');
+        const copyText = `${code} ${stock.name}`;
+        navigator.clipboard.writeText(copyText).catch(err => console.error('Copy failed', err));
+    }
+
     // Show Loading
     DOM.loadingOverlay.classList.remove('hidden');
     
@@ -985,7 +1139,12 @@ function updateActiveStockUI() {
 // Fetch and process data
 async function fetchStockData(stock) {
     DOM.symbol.textContent = stock.symbol.replace('.T', '');
-    DOM.name.textContent = stock.name;
+    if (stock.isChecked) {
+        DOM.name.innerHTML = `<i data-lucide="check-circle-2" style="color: var(--accent-color); width: 22px; height: 22px; margin-right: 6px; vertical-align: text-bottom;"></i>${stock.name}`;
+        lucide.createIcons({root: DOM.name.parentElement});
+    } else {
+        DOM.name.textContent = stock.name;
+    }
     
     // 期間に応じてインターバルを調整
     const isIntraday = currentRange === '1d';
@@ -1029,9 +1188,15 @@ async function fetchStockData(stock) {
             DOM.time.textContent = `${updateDate.getFullYear()}/${m}/${d} ${h}:${min}`;
             
             // 銘柄名を最新のものに更新
-            const fetchedName = hMeta.longName || hMeta.shortName || stock.name;
+            const fetchedName = hMeta.longName || hMeta.shortName || stock.originalName;
+            let displayName = fetchedName;
             if (fetchedName && fetchedName !== stock.originalName) {
-                DOM.name.textContent = `${stock.originalName} (${fetchedName})`;
+                displayName = `${stock.originalName} (${fetchedName})`;
+            }
+            if (stock.isChecked) {
+                DOM.name.innerHTML = `<i data-lucide="check-circle-2" style="color: var(--accent-color); width: 22px; height: 22px; margin-right: 6px; vertical-align: text-bottom;"></i>${displayName}`;
+            } else {
+                DOM.name.textContent = displayName;
             }
 
             lucide.createIcons();
@@ -1550,21 +1715,26 @@ async function startBacktest() {
 }
 
 function addSearchResultsToTree(foundStocks) {
-    const searchMajor = '🔎 抽出結果';
+    const now = new Date();
+    const mm = (now.getMonth() + 1).toString().padStart(2, '0');
+    const dd = now.getDate().toString().padStart(2, '0');
+    const HH = now.getHours().toString().padStart(2, '0');
+    const min = now.getMinutes().toString().padStart(2, '0');
+    const timeStr = `${mm}/${dd} ${HH}:${min}`;
     
-    if (!TREE_DATA[searchMajor]) {
-        TREE_DATA[searchMajor] = {};
-    } else {
-        // 古い中分類を削除（GCから始まるもの）
-        Object.keys(TREE_DATA[searchMajor]).forEach(key => {
-            if (key.includes('GC（2年）')) {
-                delete TREE_DATA[searchMajor][key];
-            }
-        });
-    }
+    const searchMajor = `🔎 抽出結果 ${timeStr}`;
     
-    // STOCKS上の古い抽出結果（同じ種類のラベルのもの）を削除
-    STOCKS = STOCKS.filter(s => !(s.major === searchMajor && s.middle && s.middle.includes('GC（2年）')));
+    // 古い「🔎 抽出結果」関連フォルダを全削除
+    Object.keys(TREE_DATA).forEach(key => {
+        if (key.startsWith('🔎 抽出結果')) {
+            delete TREE_DATA[key];
+        }
+    });
+    
+    // STOCKS上の古い抽出結果を削除
+    STOCKS = STOCKS.filter(s => !s.major.startsWith('🔎 抽出結果'));
+    
+    TREE_DATA[searchMajor] = {};
     
     let messageList = [];
     
@@ -1591,21 +1761,19 @@ function addSearchResultsToTree(foundStocks) {
     DOM.searchStatusText.textContent = `完了: 計${foundStocks.length}件抽出`;
     alert(`抽出が完了しました！\n\n【抽出内訳】\n${messageList.join('\n')}`);
     
+    saveToLocal(); // 自動保存を追加
     renderSidebar();
     
     // 抽出追加後に該当フォルダを展開する
     setTimeout(() => {
         const folders = document.querySelectorAll('.sidebar .major-folder');
         folders.forEach(f => {
-            const title = f.querySelector('.folder-title').textContent;
-            if (title === searchMajor) {
+            if (f.dataset.name === searchMajor) {
                 f.classList.remove('collapsed');
                 const midFolders = f.querySelectorAll('.middle-folder');
                 midFolders.forEach(mf => {
-                    const mTitle = mf.querySelector('.folder-title').textContent;
-                    if (mTitle === searchMiddle) {
-                        mf.classList.remove('collapsed');
-                    }
+                    // 全てのサブフォルダを展開オプションにするか、本日のGCだけ展開するか
+                    mf.classList.remove('collapsed');
                 });
             }
         });
