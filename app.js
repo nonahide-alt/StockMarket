@@ -598,27 +598,39 @@ ai_overall_view( 成長型 / 安定型 / 市況連動 / 再建型 など)`;
 }
 
 async function loadMeigaraData() {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const cachedData = localStorage.getItem(STORAGE_KEY);
+
     try {
-        // ALWAYS fetch from server first to keep all browsers in sync
-        const response = await fetch('meigara.csv?t=' + Date.now()); // Add timestamp to avoid cache
-        if (!response.ok) throw new Error('File not found');
-        const csvText = await response.text();
-        
-        if (csvText && csvText.trim().length > 0) {
-            parseCSV(csvText);
-            // Sync to local storage as backup
-            localStorage.setItem(STORAGE_KEY, csvText);
-            renderSidebar();
-            return;
+        if (isLocal) {
+            // ローカル環境ならサーバー上のmeigara.csvを最優先（全ブラウザ同期のため）
+            const response = await fetch('meigara.csv?t=' + Date.now());
+            if (response.ok) {
+                const csvText = await response.text();
+                if (csvText && csvText.trim().length > 0) {
+                    parseCSV(csvText);
+                    localStorage.setItem(STORAGE_KEY, csvText);
+                    renderSidebar();
+                    return;
+                }
+            }
         }
     } catch (e) {
-        console.warn('Failed to load from server, falling back to LocalStorage:', e);
+        console.warn('Server fetch failed, falling back to LocalStorage:', e);
     }
 
-    // Fallback to LocalStorage
-    const cachedData = localStorage.getItem(STORAGE_KEY);
+    // GitHub Pagesなどの環境、またはサーバー取得失敗時はLocalStorageを優先
     if (cachedData) {
         parseCSV(cachedData);
+    } else {
+        // LocalStorageも空の場合は初期ファイルを取得
+        try {
+            const response = await fetch('meigara.csv');
+            const csvText = await response.text();
+            parseCSV(csvText);
+        } catch (e) {
+            console.error('Initial data load failed:', e);
+        }
     }
     renderSidebar();
 }
