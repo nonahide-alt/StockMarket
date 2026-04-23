@@ -51,6 +51,7 @@ const DOM = {
     ctxFavorite: document.getElementById('ctxFavorite'),
     ctxRealFavorite: document.getElementById('ctxRealFavorite'),
     ctxCheckMark: document.getElementById('ctxCheckMark'),
+    ctxEditRemark: document.getElementById('ctxEditRemark'),
     ctxYahoo: document.getElementById('ctxYahoo'),
     ctxNikkei: document.getElementById('ctxNikkei'),
     ctxKabutan: document.getElementById('ctxKabutan'),
@@ -80,7 +81,8 @@ const DOM = {
     quickSearchInput: document.getElementById('quickSearchInput'),
     quickSearchBtn: document.getElementById('quickSearchBtn'),
     // Settings & Toggles
-    autoCopyToggle: document.getElementById('autoCopyToggle')
+    autoCopyToggle: document.getElementById('autoCopyToggle'),
+    openFinanceBtn: document.getElementById('openFinanceBtn')
 };
 
 const STORAGE_KEY = 'stock_viewer_custom_data';
@@ -207,6 +209,7 @@ async function init() {
         if (DOM.closeSearchBtn) DOM.closeSearchBtn.onclick = () => DOM.searchModal.classList.add('hidden');
         if (DOM.runGCBtn) DOM.runGCBtn.onclick = startGCSearch;
         if (DOM.runBacktestBtn) DOM.runBacktestBtn.onclick = startBacktest;
+        if (DOM.openFinanceBtn) DOM.openFinanceBtn.onclick = openFinanceWindow;
         
         // Quick Search Events
         if (DOM.quickSearchBtn) {
@@ -361,6 +364,27 @@ async function init() {
                             }
                             lucide.createIcons({root: DOM.name.parentElement});
                         }
+                    }
+                }
+            };
+        }
+
+        if (DOM.ctxEditRemark) {
+            DOM.ctxEditRemark.onclick = () => {
+                if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
+                if (!contextTargetSymbol) return;
+                
+                const targetStock = STOCKS.find(s => s.symbol === contextTargetSymbol);
+                if (targetStock) {
+                    const newRemarks = prompt('備考を編集してください:', targetStock.remarks || '');
+                    if (newRemarks !== null) {
+                        STOCKS.forEach(s => {
+                            if (s.symbol === contextTargetSymbol) {
+                                s.remarks = newRemarks;
+                            }
+                        });
+                        saveToLocal();
+                        renderSidebar(true);
                     }
                 }
             };
@@ -1408,6 +1432,7 @@ async function selectStock(index) {
     
     try {
         await fetchStockData(stock);
+        fetchAndRenderFinanceData(stock.symbol);
     } catch (e) {
         console.error("Error fetching data:", e);
         if (DOM.name.textContent === "データを読み込んでいます...") {
@@ -2228,6 +2253,111 @@ function initVerticalResizer() {
             localStorage.setItem('stock_viewer_upper_height', upperContainer.offsetHeight);
         }
     });
+}
+
+// ---- Financial Charts (Separate Window) ----
+let financeWindow = null;
+let lastFinanceData = null;
+
+function openFinanceWindow() {
+    const width = 1000;
+    const height = 800;
+    const left = (window.screen.width / 2) - (width / 2);
+    const top = (window.screen.height / 2) - (height / 2);
+    
+    financeWindow = window.open('finance.html', 'FinanceCharts', `width=${width},height=${height},left=${left},top=${top}`);
+    
+    // ウィンドウが読み込まれたら直近のデータを送信
+    financeWindow.onload = () => {
+        if (lastFinanceData && currentIndex !== -1) {
+            const stock = STOCKS[currentIndex];
+            financeWindow.updateFinancials(stock.symbol.replace('.T', ''), stock.name, lastFinanceData);
+        }
+    };
+}
+
+async function fetchAndRenderFinanceData(symbol) {
+    try {
+        const resp = await fetch(`/api/quoteSummary?symbol=${encodeURIComponent(symbol)}`);
+        if (!resp.ok) throw new Error("Finance fetch failed");
+        const data = await resp.json();
+        
+        const income = data.quoteSummary?.result?.[0]?.incomeStatementHistory?.incomeStatementHistory;
+        const balance = data.quoteSummary?.result?.[0]?.balanceSheetHistory?.balanceSheetStatements;
+        
+        if (!income || income.length === 0) {
+            lastFinanceData = null;
+            return;
+        }
+        
+        // Yahoo returns newest first. Reverse to oldest first.
+        const reversedIncome = [...income].reverse();
+        const bsMap = {};
+        if (balance) {
+            balance.forEach(b => {
+                const lbl = b.endDate?.fmt;
+                if (lbl) bsMap[lbl] = b.totalStockholderEquity?.raw || 0;
+            });
+        }
+        
+        const labels = [], revenues = [], grossMargins = [], opMargins = [], netMargins = [], roes = [];
+        const grossProfits = [], opIncomes = [], netIncomes = [];
+        
+        reversedIncome.forEach(inc => {
+            const date = inc.endDate?.fmt;
+            if (!date) return;
+            // 短縮形式 (例: 24/03) に変換
+            const parts = date.split('/');
+            const shortDate = parts.length === 2 ? `${parts[0].slice(-2)}/${parts[1]}` : date;
+            labels.push(shortDate);
+            
+            const rev = inc.totalRevenue?.raw || 0;
+            const gp = inc.grossProfit?.raw || 0;
+            const op = inc.operatingIncome?.raw || 0;
+            const ni = inc.netIncome?.raw || 0;
+            
+            revenues.push(rev / 1000000);
+            grossProfits.push(gp / 1000000);
+            opIncomes.push(op / 1000000);
+            netIncomes.push(ni / 1000000);
+            
+            grossMargins.push(rev ? (gp / rev) * 100 : 0);
+            opMargins.push(rev ? (op / rev) * 100 : 0);
+            netMargins.push(rev ? (ni / rev) * 100 : 0);
+            
+            // 純資産: 日経はincome内にstockholdersEquityを含む場合あり
+            const equity = inc.stockholdersEquity?.raw
+                        || bsMap[shortDate]
+                        || bsMap[date]
+                        || 0;
+            roes.push(equity ? (ni / equity) * 100 : 0);
+        });
+        
+        const forecast = data.quoteSummary?.result?.[0]?.earningsEstimate;
+        
+        lastFinanceData = { 
+            labels, 
+            revenues, 
+            grossMargins, 
+            opMargins, 
+            netMargins, 
+            roes, 
+            grossProfits, 
+            opIncomes, 
+            netIncomes,
+            forecast: forecast ? forecast / 1000000 : null 
+        };
+        
+        // 別ウィンドウが開いていれば更新
+        if (financeWindow && !financeWindow.closed) {
+            const stock = STOCKS[currentIndex];
+            financeWindow.updateFinancials(stock.symbol.replace('.T', ''), stock.name, lastFinanceData);
+        }
+        
+    } catch (e) {
+        console.error("Failed to fetch finance data", e);
+        lastFinanceData = null;
+    }
 }
 
 init();

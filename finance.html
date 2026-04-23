@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>業績詳細 - StockViewer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <style>
+        :root {
+            --bg-color: #0f1117;
+            --card-bg: #1a1d26;
+            --text-color: #e0e0e0;
+            --border-color: #2d313d;
+        }
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            overflow-x: hidden;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .stock-info h1 {
+            margin: 0;
+            font-size: 20px;
+        }
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 20px;
+        }
+        .chart-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            height: 350px;
+        }
+        @media (min-width: 1000px) {
+            .charts-container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .no-data {
+            text-align: center;
+            padding: 100px;
+            color: #888;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="stock-info">
+            <h1 id="stockTitle">銘柄を選択してください</h1>
+        </div>
+        <div id="updateTime" style="font-size: 12px; color: #888;"></div>
+    </div>
+
+    <div id="noData" class="no-data">メイン画面で銘柄を選択するとグラフが表示されます</div>
+
+    <div id="chartsArea" class="charts-container hidden">
+        <div class="chart-card">
+            <canvas id="financeChartLeft"></canvas>
+        </div>
+        <div class="chart-card">
+            <canvas id="financeChartRight"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let leftChart = null;
+        let rightChart = null;
+
+        Chart.register(ChartDataLabels);
+        Chart.defaults.plugins.datalabels = { display: false }; // デフォルトは非表示
+
+        // 親ウィンドウからのデータ受け取り用関数
+        window.updateFinancials = function(symbol, name, data) {
+            document.getElementById('noData').classList.add('hidden');
+            document.getElementById('chartsArea').classList.remove('hidden');
+            document.getElementById('stockTitle').textContent = `${symbol} ${name}`;
+            document.getElementById('updateTime').textContent = "最終更新: " + new Date().toLocaleTimeString();
+
+            renderCharts(data);
+        };
+
+        function renderCharts(data) {
+            if (leftChart) leftChart.destroy();
+            if (rightChart) rightChart.destroy();
+
+            Chart.defaults.color = '#888';
+
+            // 予測データがある場合の処理
+            const displayLabels = [...data.labels];
+            const displayRevenues = [...data.revenues];
+            const displayGrossProfits = [...data.grossProfits];
+            const displayOpIncomes = [...data.opIncomes];
+            const displayNetIncomes = [...data.netIncomes];
+
+            const displayGrossMargins = [...data.grossMargins];
+            const displayOpMargins = [...data.opMargins];
+            const displayNetMargins = [...data.netMargins];
+            const displayRoes = [...data.roes];
+
+            const bgColors = data.revenues.map(() => '#757575');
+
+            if (data.forecast) {
+                // ラベルから来期を推測（簡易的）
+                const lastLabel = data.labels[data.labels.length - 1];
+                const lastParts = lastLabel.split('/');
+                if (lastParts.length === 2) {
+                    const nextYear = parseInt(lastParts[0]) + 1;
+                    displayLabels.push(nextYear + "/" + lastParts[1] + "(予)");
+                } else {
+                    displayLabels.push("来期(予)");
+                }
+                
+                displayRevenues.push(data.forecast);
+                bgColors.push('#444'); // 予測値は少し暗い/薄い色にする
+
+                // 線グラフと右グラフの予測分は null (表示しない)
+                displayNetMargins.push(null);
+                displayRoes.push(null);
+                displayGrossProfits.push(null);
+                displayOpIncomes.push(null);
+                displayNetIncomes.push(null);
+            }
+
+            const ctxLeft = document.getElementById('financeChartLeft').getContext('2d');
+            leftChart = new Chart(ctxLeft, {
+                type: 'bar',
+                data: {
+                    labels: displayLabels,
+                    datasets: [
+                        { label: '売上高 (百万円)', data: displayRevenues, backgroundColor: bgColors, yAxisID: 'y', order: 1 },
+                        { 
+                            label: '当期利益率 (%)', data: displayNetMargins, type: 'line', borderColor: '#FFAB00', backgroundColor: '#FFAB00', yAxisID: 'y1', tension: 0.1, order: 0,
+                            datalabels: { display: true, align: 'top', offset: 8, color: '#FFAB00', font: { size: 10, weight: 'bold' }, formatter: (v) => v !== null ? v.toFixed(1) : '' }
+                        },
+                        { 
+                            label: 'ROE (%)', data: displayRoes, type: 'line', borderColor: '#00C853', backgroundColor: '#00C853', yAxisID: 'y1', tension: 0.1, order: 0,
+                            datalabels: { display: true, align: 'bottom', offset: 8, color: '#00C853', font: { size: 10, weight: 'bold' }, formatter: (v) => v !== null ? v.toFixed(1) : '' }
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: { display: true, text: '売上高 (百万円) & 収益性 (%)', align: 'start', color: '#ccc' },
+                        legend: { position: 'bottom', labels: { boxWidth: 10, usePointStyle: true, font: { size: 10 } } }
+                    },
+                    scales: {
+                        y: { 
+                            position: 'left', 
+                            grid: { color: '#333' },
+                            title: { display: true, text: '売上高', color: '#888', font: { size: 10 } }
+                        },
+                        y1: { 
+                            position: 'right', 
+                            grace: '10%',
+                            grid: { 
+                                drawOnChartArea: true,
+                                color: (context) => context.tick.value === 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.05)',
+                                lineWidth: (context) => context.tick.value === 0 ? 2 : 1
+                            },
+                            title: { display: true, text: '収益性/ROE (%)', color: '#888', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            const ctxRight = document.getElementById('financeChartRight').getContext('2d');
+            rightChart = new Chart(ctxRight, {
+                type: 'bar',
+                data: {
+                    labels: displayLabels,
+                    datasets: [
+                        { label: '営業利益', data: displayOpIncomes, backgroundColor: '#FF5252' },
+                        { label: '当期純利益', data: displayNetIncomes, backgroundColor: '#FFAB00' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: { display: true, text: '利益 (百万円)', align: 'start', color: '#ccc' },
+                        legend: { position: 'bottom', labels: { boxWidth: 10, usePointStyle: true, font: { size: 10 } } }
+                    },
+                    scales: { 
+                        y: { 
+                            grace: '10%',
+                            grid: { 
+                                color: (context) => context.tick.value === 0 ? '#ffffff' : '#333',
+                                lineWidth: (context) => context.tick.value === 0 ? 2 : 1
+                            } 
+                        } 
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

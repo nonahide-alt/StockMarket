@@ -112,6 +112,30 @@ try {
             continue
         }
         
+        # Proxy for Yahoo Finance quoteSummary (using Python helper for reliability)
+        if ($urlPath -eq "api/quoteSummary") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                # Call Python helper
+                $json = python get_financials.py $symbol
+                $response.ContentType = "application/json"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Proxy quoteSummary (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Proxy quoteSummary Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+        
         # Proxy to download JPX listed stocks Excel file
         if ($urlPath -eq "api/jpx-excel") {
             try {

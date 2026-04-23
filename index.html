@@ -204,6 +204,10 @@
                         <button id="refreshChartBtn" class="refresh-btn" title="チャートを再表示">
                             <i data-lucide="refresh-cw"></i>
                         </button>
+
+                        <button id="openFinanceBtn" class="action-btn" style="margin-left: 10px; padding: 4px 10px; font-size: 11px; background: var(--accent-color); color: white; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                            <i data-lucide="bar-chart-3" style="width: 14px; height: 14px;"></i> 業績表示
+                        </button>
                         
                         <!-- Toggle for Auto Copy -->
                         <div class="auto-copy-toggle" style="margin-left: 20px; display: flex; align-items: center; gap: 6px;">
@@ -249,6 +253,7 @@
                     <div class="legend-item"><span class="legend-color ma75"></span> MA 75</div>
                     <div class="legend-item"><span class="legend-color ma200"></span> MA 200</div>
                 </div>
+                </div>
             </div>
         </main>
     </div>
@@ -265,8 +270,11 @@
             <li id="ctxCheckMark" class="context-menu-item">
                 <i data-lucide="check-circle-2"></i> チェック
             </li>
+            <li id="ctxEditRemark" class="context-menu-item">
+                <i data-lucide="edit-3"></i> 備考の編集
+            </li>
             <li id="ctxSendToFolder" class="context-menu-item context-menu-has-sub">
-                <i data-lucide="folder-input"></i> フォルダへ送る
+                <i data-lucide="folder-input"></i> フォルダへコピー
                 <i data-lucide="chevron-right" class="sub-arrow"></i>
             </li>
             <li class="context-menu-separator"></li>
@@ -318,6 +326,8 @@
     <!-- Scripts -->
     <!-- SheetJS for JPX Excel parsing -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- Chart.js for Financial Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Lightweight Charts -->
     <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
     <!-- Lucide Icons -->
