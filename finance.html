@@ -21,6 +21,20 @@
             font-family: 'Inter', 'Noto Sans JP', sans-serif;
             overflow-x: hidden;
         }
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 17, 23, 0.9);
+            z-index: 9999;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.3s;
+        }
         .header {
             display: flex;
             justify-content: space-between;
@@ -34,6 +48,27 @@
             z-index: 100;
             padding-top: 20px;
             margin-top: -20px;
+        }
+        .dividend-item span.amount {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+        .ext-link {
+            padding: 8px 16px;
+            background: #1e2433;
+            border: 1px solid #3b4255;
+            border-radius: 6px;
+            color: #e0e0e0;
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+        }
+        .ext-link:hover {
+            background: #2d3a5a;
+            border-color: #60a5fa;
+            color: #fff;
         }
         .stock-info h1 {
             margin: 0;
@@ -76,26 +111,41 @@
     </style>
 </head>
 <body>
+    <!-- ローディングオーバーレイ -->
+    <div id="loadingOverlay">
+        <div style="font-size: 18px; color: #60a5fa; margin-bottom: 20px; font-weight: bold;">データを取得中...</div>
+        <div style="width: 300px; height: 10px; background: #2d313d; border-radius: 5px; overflow: hidden;">
+            <div id="loadingBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.3s ease;"></div>
+        </div>
+        <div id="loadingText" style="margin-top: 10px; font-size: 12px; color: #888;">初期化中...</div>
+    </div>
+
     <div class="header">
         <div class="stock-info" style="display: flex; flex-direction: column; gap: 8px;">
             <h1 id="stockTitle">銘柄を選択してください</h1>
             <div id="headerBadges" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;"></div>
         </div>
-        <div id="dividendYieldInfo" style="display:flex; align-items:center; gap:24px;">
-            <div style="text-align:right;">
-                <div style="font-size:11px; color:#888; margin-bottom:2px;">現在株価</div>
-                <div id="currentPriceDisp" style="font-size:20px; font-weight:700; color:#e0e0e0;">---</div>
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+            <div id="dividendYieldInfo" style="display:flex; align-items:center; gap:24px;">
+                <div style="text-align:right;">
+                    <div style="font-size:11px; color:#888; margin-bottom:2px;">現在株価</div>
+                    <div id="currentPriceDisp" style="font-size:20px; font-weight:700; color:#e0e0e0;">---</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:11px; color:#888; margin-bottom:2px;">配当利回り（会社予想）</div>
+                    <div id="dividendYieldDisp" style="font-size:20px; font-weight:700; color:#FFAB00;">--.--%</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:11px; color:#888; margin-bottom:2px;">年間配当（最新）</div>
+                    <div id="annualDivDisp" style="font-size:20px; font-weight:700; color:#b3b3b3;">--- 円</div>
+                </div>
             </div>
-            <div style="text-align:right;">
-                <div style="font-size:11px; color:#888; margin-bottom:2px;">配当利回り（会社予想）</div>
-                <div id="dividendYieldDisp" style="font-size:20px; font-weight:700; color:#FFAB00;">--.--%</div>
-            </div>
-            <div style="text-align:right;">
-                <div style="font-size:11px; color:#888; margin-bottom:2px;">年間配当（最新）</div>
-                <div id="annualDivDisp" style="font-size:20px; font-weight:700; color:#b3b3b3;">--- 円</div>
+            <div style="display:flex; gap:12px; align-items:center;">
+                <a id="headerLinkShareholder" href="#" target="_blank" class="ext-link hidden" style="padding:4px 8px; font-size:11px;">大株主</a>
+                <a id="headerLinkIR" href="#" target="_blank" class="ext-link hidden" style="padding:4px 8px; font-size:11px;">IR資料</a>
+                <div id="updateTime" style="font-size: 12px; color: #888;"></div>
             </div>
         </div>
-        <div id="updateTime" style="font-size: 12px; color: #888;"></div>
     </div>
 
     <div id="noData" class="no-data">メイン画面で銘柄を選択するとグラフが表示されます</div>
@@ -146,13 +196,56 @@
 
     <!-- ニュース一覧 -->
     <div id="newsArea" class="hidden" style="margin: 20px; padding: 15px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
-        <h3 style="margin-top:0; color:#ccc; font-size:14px; border-bottom:1px solid #333; padding-bottom:8px; margin-bottom:12px;">直近のニュース (株探)</h3>
-        <ul id="newsList" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;">
-            <!-- ニュース項目がここに入る -->
-        </ul>
+        <div style="display:flex; border-bottom:1px solid #333; margin-bottom:12px;">
+            <button id="tabKabutan" style="background:transparent; color:#60a5fa; border:none; border-bottom:2px solid #60a5fa; padding:8px 16px; cursor:pointer; font-weight:bold;">株探</button>
+            <button id="tabYahoo" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">Yahoo!</button>
+            <button id="tabNikkei" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">日経</button>
+        </div>
+        <ul id="newsListKabutan" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
+        <ul id="newsListYahoo" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
+        <ul id="newsListNikkei" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
+        <div id="newsMoreLink" style="margin-top:12px; text-align:right;">
+            <a id="newsMoreAnchor" href="#" target="_blank" style="font-size:11px; color:#60a5fa; text-decoration:none;">ニュースをもっと見る →</a>
+        </div>
+    </div>
+
+    <!-- 外部リンク -->
+    <div id="externalLinksArea" class="hidden" style="margin: 20px; padding: 20px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+        <h3 style="margin-top:0; margin-bottom:16px; font-size:15px; color:#a78bfa; border-bottom:1px solid #333; padding-bottom:10px; display:flex; align-items:center; gap:8px;">
+            <span style="font-size:18px;">🔗</span> 各種リンク
+        </h3>
+        <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <a id="linkYahoo" class="ext-link" href="#" target="_blank">Yahoo!ファイナンス</a>
+            <a id="linkKabutan" class="ext-link" href="#" target="_blank">株探</a>
+            <a id="linkNikkei" class="ext-link" href="#" target="_blank">日経電子版</a>
+            <a id="linkKabuyoho" class="ext-link" href="#" target="_blank">株予報</a>
+            <a id="linkBuffett" class="ext-link" href="#" target="_blank">バフェットコード</a>
+            <a id="linkMinkabu" class="ext-link" href="#" target="_blank">みんかぶ</a>
+            <a id="linkTraders" class="ext-link" href="#" target="_blank">トレーダーズ・ウェブ</a>
+        </div>
     </div>
 
     <script>
+        window.updateProgress = function(percent, message) {
+            const overlay = document.getElementById('loadingOverlay');
+            const bar = document.getElementById('loadingBar');
+            const text = document.getElementById('loadingText');
+            if (overlay) {
+                if (percent > 0 && percent < 100) {
+                    overlay.style.display = 'flex';
+                    overlay.style.opacity = '1';
+                }
+                bar.style.width = `${percent}%`;
+                text.textContent = message;
+                if (percent >= 100) {
+                    setTimeout(() => {
+                        overlay.style.opacity = '0';
+                        setTimeout(() => overlay.style.display = 'none', 300);
+                    }, 500);
+                }
+            }
+        };
+
         let leftChart = null;
         let rightChart = null;
         let dividendChart = null;
@@ -164,10 +257,32 @@
 
         // 親ウィンドウからのデータ受け取り用関数
         window.updateFinancials = function(symbol, name, data) {
+            // ローディング画面を非表示
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = 'none';
+
             document.getElementById('noData').classList.add('hidden');
             document.getElementById('chartsArea').classList.remove('hidden');
             document.getElementById('stockTitle').textContent = `${symbol} ${name}`;
             document.getElementById('updateTime').textContent = "最終更新: " + new Date().toLocaleTimeString();
+
+            // 外部リンクの設定
+            document.getElementById('externalLinksArea').classList.remove('hidden');
+            document.getElementById('linkYahoo').href = `https://finance.yahoo.co.jp/quote/${symbol}.T`;
+            document.getElementById('linkKabutan').href = `https://kabutan.jp/stock/?code=${symbol}`;
+            document.getElementById('linkNikkei').href = `https://www.nikkei.com/nkd/company/?scode=${symbol}`;
+            document.getElementById('linkKabuyoho').href = `https://kabuyoho.jp/reportTop?bcode=${symbol}`;
+            document.getElementById('linkBuffett').href = `https://www.buffett-code.com/company/${symbol}/`;
+            document.getElementById('linkMinkabu').href = `https://minkabu.jp/stock/${symbol}`;
+            document.getElementById('linkTraders').href = `https://www.traders.co.jp/stocks/${symbol}/`;
+
+            // ヘッダーリンク（大株主・IR資料）の設定
+            const linkShareholder = document.getElementById('headerLinkShareholder');
+            const linkIR = document.getElementById('headerLinkIR');
+            linkShareholder.href = `https://www.buffett-code.com/company/${symbol}/mainshareholder`;
+            linkIR.href = `https://www.buffett-code.com/company/${symbol}/library`;
+            linkShareholder.classList.remove('hidden');
+            linkIR.classList.remove('hidden');
 
             // 株価・配当利回りの表示
             const price = data.currentPrice;
@@ -269,10 +384,15 @@
 
             // ---- ニュースの表示 ----
             const newsArea = document.getElementById('newsArea');
-            const newsList = document.getElementById('newsList');
-            newsList.innerHTML = '';
-            if (data.newsInfo && data.newsInfo.length > 0) {
-                data.newsInfo.forEach(n => {
+            const newsListKabutan = document.getElementById('newsListKabutan');
+            const newsListYahoo = document.getElementById('newsListYahoo');
+            const newsListNikkei = document.getElementById('newsListNikkei');
+            newsListKabutan.innerHTML = '';
+            newsListYahoo.innerHTML = '';
+            newsListNikkei.innerHTML = '';
+
+            const renderNews = (listElement, newsData) => {
+                newsData.forEach(n => {
                     const li = document.createElement('li');
                     li.style.marginBottom = '6px';
                     
@@ -296,9 +416,77 @@
                             ${n.title}
                         </a>
                     `;
-                    newsList.appendChild(li);
+                    listElement.appendChild(li);
                 });
+            };
+
+            const hasKabutan = data.newsInfo && data.newsInfo.length > 0;
+            const hasYahoo = data.yahooNewsInfo && data.yahooNewsInfo.length > 0;
+            const hasNikkei = data.nikkeiNewsInfo && data.nikkeiNewsInfo.length > 0;
+
+            if (hasKabutan) renderNews(newsListKabutan, data.newsInfo);
+            if (hasYahoo) renderNews(newsListYahoo, data.yahooNewsInfo);
+            if (hasNikkei) renderNews(newsListNikkei, data.nikkeiNewsInfo);
+
+            if (hasKabutan || hasYahoo || hasNikkei) {
                 newsArea.classList.remove('hidden');
+                
+                // タブ切り替えロジック
+                const tabKabutan = document.getElementById('tabKabutan');
+                const tabYahoo = document.getElementById('tabYahoo');
+                const tabNikkei = document.getElementById('tabNikkei');
+                
+                // 件数の表示
+                tabKabutan.textContent = `株探 (${data.newsInfo?.length || 0})`;
+                tabYahoo.textContent = `Yahoo! (${data.yahooNewsInfo?.length || 0})`;
+                tabNikkei.textContent = `日経 (${data.nikkeiNewsInfo?.length || 0})`;
+                
+                const activateTab = (tabName) => {
+                    const isKabutan = tabName === 'kabutan';
+                    const isYahoo = tabName === 'yahoo';
+                    const isNikkei = tabName === 'nikkei';
+
+                    tabKabutan.style.color = isKabutan ? '#60a5fa' : '#888';
+                    tabKabutan.style.borderBottom = isKabutan ? '2px solid #60a5fa' : 'none';
+                    tabKabutan.style.fontWeight = isKabutan ? 'bold' : 'normal';
+                    
+                    tabYahoo.style.color = isYahoo ? '#ff4d4f' : '#888';
+                    tabYahoo.style.borderBottom = isYahoo ? '2px solid #ff4d4f' : 'none';
+                    tabYahoo.style.fontWeight = isYahoo ? 'bold' : 'normal';
+
+                    tabNikkei.style.color = isNikkei ? '#facc15' : '#888'; // Nikkei yellow/gold
+                    tabNikkei.style.borderBottom = isNikkei ? '2px solid #facc15' : 'none';
+                    tabNikkei.style.fontWeight = isNikkei ? 'bold' : 'normal';
+
+                    if (isKabutan) {
+                        newsListKabutan.classList.remove('hidden');
+                        newsListYahoo.classList.add('hidden');
+                        newsListNikkei.classList.add('hidden');
+                        document.getElementById('newsMoreAnchor').href = `https://kabutan.jp/stock/news?code=${symbol}`;
+                        document.getElementById('newsMoreAnchor').textContent = '株探でニュースをもっと見る →';
+                    } else if (isYahoo) {
+                        newsListKabutan.classList.add('hidden');
+                        newsListYahoo.classList.remove('hidden');
+                        newsListNikkei.classList.add('hidden');
+                        document.getElementById('newsMoreAnchor').href = `https://finance.yahoo.co.jp/quote/${symbol}.T/news`;
+                        document.getElementById('newsMoreAnchor').textContent = 'Yahoo!ファイナンスでニュースをもっと見る →';
+                    } else {
+                        newsListKabutan.classList.add('hidden');
+                        newsListYahoo.classList.add('hidden');
+                        newsListNikkei.classList.remove('hidden');
+                        document.getElementById('newsMoreAnchor').href = `https://www.nikkei.com/nkd/company/news/?scode=${symbol}`;
+                        document.getElementById('newsMoreAnchor').textContent = '日経電子版でニュースをもっと見る →';
+                    }
+                };
+
+                tabKabutan.onclick = () => activateTab('kabutan');
+                tabYahoo.onclick = () => activateTab('yahoo');
+                tabNikkei.onclick = () => activateTab('nikkei');
+
+                // デフォルトの表示優先順位: 株探 -> 日経 -> Yahoo
+                if (hasKabutan) activateTab('kabutan');
+                else if (hasNikkei) activateTab('nikkei');
+                else activateTab('yahoo');
             } else {
                 newsArea.classList.add('hidden');
             }

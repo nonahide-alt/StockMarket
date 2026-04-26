@@ -204,6 +204,53 @@ try {
             continue
         }
 
+        # Proxy for Yahoo News
+        if ($urlPath -eq "api/yahoo_news") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $json = python yahoo_news.py $symbol
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Yahoo News (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Yahoo News Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
+        # Proxy for Nikkei News
+        if ($urlPath -eq "api/nikkei_news") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $code = $symbol -replace "\.T", ""
+                $json = python nikkei_news.py $code
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Nikkei News (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Nikkei News Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
 
         # Proxy for Kabutan Yutai (株主優待情報)
         if ($urlPath -eq "api/kabutan_yutai") {

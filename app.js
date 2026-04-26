@@ -2282,12 +2282,23 @@ function openFinanceWindow() {
         if (lastFinanceData && currentIndex !== -1) {
             const stock = STOCKS[currentIndex];
             financeWindow.updateFinancials(stock.symbol.replace('.T', ''), stock.name, lastFinanceData);
+        } else if (financeWindow.updateProgress) {
+            financeWindow.updateProgress(10, "データの取得を待機中...");
         }
     };
 }
 
 async function fetchAndRenderFinanceData(symbol) {
+    lastFinanceData = null; // 新しい銘柄の取得を開始するのでリセット
+
+    const notifyProgress = (percent, message) => {
+        if (financeWindow && !financeWindow.closed && financeWindow.updateProgress) {
+            financeWindow.updateProgress(percent, message);
+        }
+    };
+
     try {
+        notifyProgress(10, "基本業績データを取得中...");
         const resp = await fetch(`/api/quoteSummary?symbol=${encodeURIComponent(symbol)}`);
         if (!resp.ok) throw new Error("Finance fetch failed");
         const data = await resp.json();
@@ -2350,6 +2361,7 @@ async function fetchAndRenderFinanceData(symbol) {
         const forecast = data.quoteSummary?.result?.[0]?.earningsEstimate;
         
         let dividendData = null;
+        notifyProgress(30, "配当データを取得中...");
         try {
             const divResp = await fetch(`/api/nikkei_dividend?symbol=${encodeURIComponent(symbol)}`);
             if (divResp.ok) {
@@ -2366,6 +2378,7 @@ async function fetchAndRenderFinanceData(symbol) {
         // ----- 株探から日本語事業概要を取得 -----
         let businessInfo = null;
         if (symbol.endsWith('.T')) {
+            notifyProgress(50, "事業内容を取得中...");
             try {
                 const bizResp = await fetch(`/api/kabutan_biz?symbol=${encodeURIComponent(symbol)}`);
                 if (bizResp.ok) {
@@ -2380,23 +2393,42 @@ async function fetchAndRenderFinanceData(symbol) {
             businessInfo = data.quoteSummary?.result?.[0]?.businessInfo || null;
         }
 
-        // ----- 株探から直近ニュースを取得 -----
+        // ----- 直近ニュースを取得 -----
         let newsInfo = null;
+        let yahooNewsInfo = null;
+        let nikkeiNewsInfo = null;
         if (symbol.endsWith('.T')) {
+            notifyProgress(70, "ニュース記事を取得中...");
             try {
-                const newsResp = await fetch(`/api/kabutan_news?symbol=${encodeURIComponent(symbol)}`);
-                if (newsResp.ok) {
+                const [newsResp, yahooResp, nikkeiResp] = await Promise.all([
+                    fetch(`/api/kabutan_news?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
+                    fetch(`/api/yahoo_news?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
+                    fetch(`/api/nikkei_news?symbol=${encodeURIComponent(symbol)}`).catch(() => null)
+                ]);
+
+                if (newsResp && newsResp.ok) {
                     const newsData = await newsResp.json();
                     if (newsData.news) newsInfo = newsData.news;
                 }
+
+                if (yahooResp && yahooResp.ok) {
+                    const yahooData = await yahooResp.json();
+                    if (yahooData.news) yahooNewsInfo = yahooData.news;
+                }
+
+                if (nikkeiResp && nikkeiResp.ok) {
+                    const nikkeiData = await nikkeiResp.json();
+                    if (nikkeiData.news) nikkeiNewsInfo = nikkeiData.news;
+                }
             } catch (e) {
-                console.warn('Kabutan news fetch failed', e);
+                console.warn('News fetch failed', e);
             }
         }
 
         // ----- 株探から株主優待情報を取得 -----
         let yutaiInfo = null;
         if (symbol.endsWith('.T')) {
+            notifyProgress(90, "株主優待情報を取得中...");
             try {
                 const yutaiResp = await fetch(`/api/kabutan_yutai?symbol=${encodeURIComponent(symbol)}`);
                 if (yutaiResp.ok) {
@@ -2424,8 +2456,12 @@ async function fetchAndRenderFinanceData(symbol) {
             currentPrice: lastCurrentPrice,
             businessInfo: businessInfo,
             newsInfo: newsInfo,
+            yahooNewsInfo: yahooNewsInfo,
+            nikkeiNewsInfo: nikkeiNewsInfo,
             yutaiInfo: yutaiInfo
         };
+        
+        notifyProgress(100, "取得完了");
         
         // 別ウィンドウが開いていれば更新
         if (financeWindow && !financeWindow.closed) {
