@@ -1,6 +1,11 @@
 param(
     [int]$port = 8080
 )
+# Force UTF-8 for external commands and output
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$env:PYTHONIOENCODING = 'utf-8'
+
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://localhost:$port/")
 try {
@@ -251,6 +256,76 @@ try {
             continue
         }
 
+        # Proxy for Minkabu News
+        if ($urlPath -eq "api/minkabu_news") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $code = $symbol -replace "\.T", ""
+                $json = python minkabu_news.py $code
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Minkabu News (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Minkabu News Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
+        # Proxy for Traders Web News
+        if ($urlPath -eq "api/traders_web_news") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $code = $symbol -replace "\.T", ""
+                $json = python traders_web_news.py $code
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Traders Web News (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Traders Web News Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+        # Proxy for Nikkei Profile
+        if ($urlPath -eq "api/nikkei_profile") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $code = $symbol -replace "\.T", ""
+                $json = python nikkei_profile.py $code
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Nikkei Profile (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Nikkei Profile Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
 
         # Proxy for Kabutan Yutai (株主優待情報)
         if ($urlPath -eq "api/kabutan_yutai") {

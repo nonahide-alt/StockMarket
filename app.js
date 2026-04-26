@@ -123,7 +123,32 @@ async function quickSearchStock() {
         if (!hResult) throw new Error('銘柄が見つかりません');
         
         const hMeta = hResult.meta;
-        const stockName = hMeta.longName || hMeta.shortName || symbol;
+        
+        // 既存の銘柄リストから日本語名を取得
+        let stockName = symbol;
+        const existingStock = STOCKS.find(s => s.symbol === symbol);
+        if (existingStock) {
+            stockName = (existingStock.originalName || existingStock.name).replace(/^✔\s*/, '').trim();
+        } else {
+            // STOCKSに無い場合はNikkei Profile APIから日本語名を取得を試みる
+            try {
+                const nUrl = `/api/nikkei_profile?symbol=${encodeURIComponent(symbol)}`;
+                const nResp = await fetch(nUrl);
+                if (nResp.ok) {
+                    const nData = await nResp.json();
+                    if (nData && nData.name) {
+                        stockName = nData.name;
+                    } else {
+                        stockName = hMeta.longName || hMeta.shortName || symbol;
+                    }
+                } else {
+                    stockName = hMeta.longName || hMeta.shortName || symbol;
+                }
+            } catch (ne) {
+                console.warn('Failed to fetch Japanese name from Nikkei Profile API', ne);
+                stockName = hMeta.longName || hMeta.shortName || symbol;
+            }
+        }
         
         // 検索履歴フォルダに登録
         const historyMajor = '🔍 検索履歴';
@@ -2268,6 +2293,7 @@ function initVerticalResizer() {
 let financeWindow = null;
 let lastFinanceData = null;
 let lastCurrentPrice = null; // 現在株価（配当利回り計算用）
+let _financeAbortController = null; // 業績データ取得キャンセル用
 
 function openFinanceWindow() {
     const width = 1000;
@@ -2288,26 +2314,38 @@ function openFinanceWindow() {
     };
 }
 
-async function fetchAndRenderFinanceData(symbol) {
+async function fetchAndRenderFinanceData(symbol, forceFull = false) {
+    // 前回の取得が進行中であればキャンセルする
+    if (_financeAbortController) {
+        _financeAbortController.abort();
+    }
+    _financeAbortController = new AbortController();
+    const signal = _financeAbortController.signal;
+
     lastFinanceData = null; // 新しい銘柄の取得を開始するのでリセット
 
     const notifyProgress = (percent, message) => {
         if (financeWindow && !financeWindow.closed && financeWindow.updateProgress) {
-            financeWindow.updateProgress(percent, message);
+            financeWindow.updateProgress(percent, message, symbol);
         }
     };
 
     try {
         notifyProgress(10, "基本業績データを取得中...");
-        const resp = await fetch(`/api/quoteSummary?symbol=${encodeURIComponent(symbol)}`);
+        const resp = await fetch(`/api/quoteSummary?symbol=${encodeURIComponent(symbol)}`, { signal });
         if (!resp.ok) throw new Error("Finance fetch failed");
+        if (signal.aborted) return;
         const data = await resp.json();
+        if (signal.aborted) return;
         
         const income = data.quoteSummary?.result?.[0]?.incomeStatementHistory?.incomeStatementHistory;
         const balance = data.quoteSummary?.result?.[0]?.balanceSheetHistory?.balanceSheetStatements;
         
         if (!income || income.length === 0) {
             lastFinanceData = null;
+            if (forceFull && financeWindow && !financeWindow.closed && typeof financeWindow.resetFullDataBtn === 'function') {
+                financeWindow.resetFullDataBtn();
+            }
             return;
         }
         
@@ -2360,11 +2398,50 @@ async function fetchAndRenderFinanceData(symbol) {
         
         const forecast = data.quoteSummary?.result?.[0]?.earningsEstimate;
         
+        if (signal.aborted) return;
+
+        // ---- 簡易取得モード判定 ----
+        const isLite = !forceFull && (localStorage.getItem('financeWindow_liteMode') === 'true');
+        if (isLite) {
+            const liteData = {
+                isLite: true,
+                labels, revenues, grossMargins, opMargins, netMargins,
+                roes, equityRatios, grossProfits, opIncomes, netIncomes,
+                forecast: forecast ? forecast / 1000000 : null,
+                dividendData: null, currentPrice: lastCurrentPrice,
+                businessInfo: null, newsInfo: null, yahooNewsInfo: null,
+                nikkeiNewsInfo: null, minkabuNewsInfo: null, tradersWebNewsInfo: null,
+                yutaiInfo: null, nikkeiProfileInfo: null
+            };
+            // 事業内容だけ取得（軽量・1リクエスト）
+            if (symbol.endsWith('.T')) {
+                notifyProgress(40, '事業内容を取得中...');
+                try {
+                    const bizResp = await fetch(`/api/kabutan_biz?symbol=${encodeURIComponent(symbol)}`, { signal });
+                    if (bizResp.ok && !signal.aborted) {
+                        const bizData = await bizResp.json();
+                        if (bizData.summary) liteData.businessInfo = bizData;
+                    }
+                } catch (e) {
+                    if (e.name === 'AbortError') return;
+                }
+            }
+            if (signal.aborted) return;
+            lastFinanceData = liteData;
+            notifyProgress(100, '取得完了（簡易）');
+            if (financeWindow && !financeWindow.closed) {
+                const stock = STOCKS[currentIndex];
+                financeWindow.updateFinancials(stock.symbol.replace('.T', ''), stock.name, lastFinanceData);
+            }
+            return;
+        }
+
         let dividendData = null;
         notifyProgress(30, "配当データを取得中...");
         try {
-            const divResp = await fetch(`/api/nikkei_dividend?symbol=${encodeURIComponent(symbol)}`);
+            const divResp = await fetch(`/api/nikkei_dividend?symbol=${encodeURIComponent(symbol)}`, { signal });
             if (divResp.ok) {
+                if (signal.aborted) return;
                 dividendData = await divResp.json();
                 if (dividendData.error) {
                     console.error("Nikkei API returned error:", dividendData.error);
@@ -2372,20 +2449,24 @@ async function fetchAndRenderFinanceData(symbol) {
                 }
             }
         } catch (e) {
+            if (e.name === 'AbortError') return;
             console.error("Failed to fetch Nikkei Dividend data", e);
         }
         
         // ----- 株探から日本語事業概要を取得 -----
+        if (signal.aborted) return;
         let businessInfo = null;
         if (symbol.endsWith('.T')) {
             notifyProgress(50, "事業内容を取得中...");
             try {
-                const bizResp = await fetch(`/api/kabutan_biz?symbol=${encodeURIComponent(symbol)}`);
+                const bizResp = await fetch(`/api/kabutan_biz?symbol=${encodeURIComponent(symbol)}`, { signal });
                 if (bizResp.ok) {
+                    if (signal.aborted) return;
                     const bizData = await bizResp.json();
                     if (bizData.summary) businessInfo = bizData;
                 }
             } catch (e) {
+                if (e.name === 'AbortError') return;
                 console.warn('Kabutan biz info fetch failed', e);
             }
         } else {
@@ -2394,17 +2475,24 @@ async function fetchAndRenderFinanceData(symbol) {
         }
 
         // ----- 直近ニュースを取得 -----
+        if (signal.aborted) return;
         let newsInfo = null;
         let yahooNewsInfo = null;
         let nikkeiNewsInfo = null;
+        let minkabuNewsInfo = null;
+        let tradersWebNewsInfo = null;
         if (symbol.endsWith('.T')) {
             notifyProgress(70, "ニュース記事を取得中...");
             try {
-                const [newsResp, yahooResp, nikkeiResp] = await Promise.all([
-                    fetch(`/api/kabutan_news?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
-                    fetch(`/api/yahoo_news?symbol=${encodeURIComponent(symbol)}`).catch(() => null),
-                    fetch(`/api/nikkei_news?symbol=${encodeURIComponent(symbol)}`).catch(() => null)
+                const [newsResp, yahooResp, nikkeiResp, minkabuResp, tradersWebResp] = await Promise.all([
+                    fetch(`/api/kabutan_news?symbol=${encodeURIComponent(symbol)}`, { signal }).catch(e => e.name === 'AbortError' ? null : null),
+                    fetch(`/api/yahoo_news?symbol=${encodeURIComponent(symbol)}`, { signal }).catch(e => e.name === 'AbortError' ? null : null),
+                    fetch(`/api/nikkei_news?symbol=${encodeURIComponent(symbol)}`, { signal }).catch(e => e.name === 'AbortError' ? null : null),
+                    fetch(`/api/minkabu_news?symbol=${encodeURIComponent(symbol)}`, { signal }).catch(e => e.name === 'AbortError' ? null : null),
+                    fetch(`/api/traders_web_news?symbol=${encodeURIComponent(symbol)}`, { signal }).catch(e => e.name === 'AbortError' ? null : null)
                 ]);
+
+                if (signal.aborted) return;
 
                 if (newsResp && newsResp.ok) {
                     const newsData = await newsResp.json();
@@ -2420,27 +2508,60 @@ async function fetchAndRenderFinanceData(symbol) {
                     const nikkeiData = await nikkeiResp.json();
                     if (nikkeiData.news) nikkeiNewsInfo = nikkeiData.news;
                 }
+
+                if (minkabuResp && minkabuResp.ok) {
+                    const minkabuData = await minkabuResp.json();
+                    if (minkabuData.news) minkabuNewsInfo = minkabuData.news;
+                }
+
+                if (tradersWebResp && tradersWebResp.ok) {
+                    const tradersWebData = await tradersWebResp.json();
+                    if (tradersWebData.news) tradersWebNewsInfo = tradersWebData.news;
+                }
             } catch (e) {
+                if (e.name === 'AbortError') return;
                 console.warn('News fetch failed', e);
             }
         }
 
         // ----- 株探から株主優待情報を取得 -----
+        if (signal.aborted) return;
         let yutaiInfo = null;
         if (symbol.endsWith('.T')) {
             notifyProgress(90, "株主優待情報を取得中...");
             try {
-                const yutaiResp = await fetch(`/api/kabutan_yutai?symbol=${encodeURIComponent(symbol)}`);
+                const yutaiResp = await fetch(`/api/kabutan_yutai?symbol=${encodeURIComponent(symbol)}`, { signal });
                 if (yutaiResp.ok) {
+                    if (signal.aborted) return;
                     const yutaiData = await yutaiResp.json();
                     if (!yutaiData.error) yutaiInfo = yutaiData;
                 }
             } catch (e) {
+                if (e.name === 'AbortError') return;
                 console.warn('Kabutan yutai fetch failed', e);
+            }
+        }
+
+        // ----- 日経から企業概要(HPのURL等)を取得 -----
+        if (signal.aborted) return;
+        let nikkeiProfileInfo = null;
+        if (symbol.endsWith('.T')) {
+            notifyProgress(95, "企業概要を取得中...");
+            try {
+                const nikkeiProfileResp = await fetch(`/api/nikkei_profile?symbol=${encodeURIComponent(symbol)}`, { signal });
+                if (nikkeiProfileResp.ok) {
+                    if (signal.aborted) return;
+                    const profileData = await nikkeiProfileResp.json();
+                    if (!profileData.error) nikkeiProfileInfo = profileData;
+                }
+            } catch (e) {
+                if (e.name === 'AbortError') return;
+                console.warn('Nikkei profile fetch failed', e);
             }
         }
         
         lastFinanceData = { 
+            isLite: false,
             labels, 
             revenues, 
             grossMargins, 
@@ -2458,7 +2579,10 @@ async function fetchAndRenderFinanceData(symbol) {
             newsInfo: newsInfo,
             yahooNewsInfo: yahooNewsInfo,
             nikkeiNewsInfo: nikkeiNewsInfo,
-            yutaiInfo: yutaiInfo
+            minkabuNewsInfo: minkabuNewsInfo,
+            tradersWebNewsInfo: tradersWebNewsInfo,
+            yutaiInfo: yutaiInfo,
+            nikkeiProfileInfo: nikkeiProfileInfo
         };
         
         notifyProgress(100, "取得完了");
@@ -2467,12 +2591,24 @@ async function fetchAndRenderFinanceData(symbol) {
         if (financeWindow && !financeWindow.closed) {
             const stock = STOCKS[currentIndex];
             financeWindow.updateFinancials(stock.symbol.replace('.T', ''), stock.name, lastFinanceData);
+            if (forceFull && typeof financeWindow.resetFullDataBtn === 'function') {
+                financeWindow.resetFullDataBtn();
+            }
         }
         
     } catch (e) {
+        if (e.name === 'AbortError') return; // キャンセルは正常終了
         console.error("Failed to fetch finance data", e);
         lastFinanceData = null;
+        if (forceFull && financeWindow && !financeWindow.closed && typeof financeWindow.resetFullDataBtn === 'function') {
+            financeWindow.resetFullDataBtn();
+        }
     }
 }
+
+// 別ウィンドウから全データを取得するための公開関数
+window.fetchAndRenderFinanceDataFull = function(symbol) {
+    fetchAndRenderFinanceData(symbol, true);
+};
 
 init();

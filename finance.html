@@ -101,6 +101,11 @@
             #perCard {
                 grid-column: span 2;
             }
+            /* 簡易モード: 売上・利益・自己資本比率を1行3列に */
+            #chartsArea.lite-layout > .chart-card:nth-child(1),
+            #chartsArea.lite-layout > .chart-card:nth-child(2) {
+                grid-column: span 2;
+            }
         }
         .no-data {
             text-align: center;
@@ -108,12 +113,46 @@
             color: #888;
         }
         .hidden { display: none; }
+        /* Lite Mode Toggle */
+        .lite-mode-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #1a1d26;
+            border: 1px solid #3b4255;
+            border-radius: 20px;
+            padding: 5px 12px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .lite-mode-wrap input[type=checkbox] { display: none; }
+        .lite-toggle {
+            width: 36px; height: 18px;
+            background: #444;
+            border-radius: 9px;
+            position: relative;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        .lite-toggle::after {
+            content: '';
+            width: 14px; height: 14px;
+            background: #aaa;
+            border-radius: 50%;
+            position: absolute;
+            top: 2px; left: 2px;
+            transition: left 0.2s, background 0.2s;
+        }
+        input:checked + .lite-toggle { background: #3b82f6; }
+        input:checked + .lite-toggle::after { left: 20px; background: #fff; }
+        .lite-label { font-size: 12px; color: #aaa; white-space: nowrap; }
+        input:checked ~ .lite-label { color: #60a5fa; font-weight: bold; }
     </style>
 </head>
 <body>
     <!-- ローディングオーバーレイ -->
     <div id="loadingOverlay">
-        <div style="font-size: 18px; color: #60a5fa; margin-bottom: 20px; font-weight: bold;">データを取得中...</div>
+        <div id="loadingTitle" style="font-size: 18px; color: #60a5fa; margin-bottom: 20px; font-weight: bold;">データを取得中...</div>
         <div style="width: 300px; height: 10px; background: #2d313d; border-radius: 5px; overflow: hidden;">
             <div id="loadingBar" style="width: 0%; height: 100%; background: #60a5fa; transition: width 0.3s ease;"></div>
         </div>
@@ -125,8 +164,31 @@
             <h1 id="stockTitle">銘柄を選択してください</h1>
             <div id="headerBadges" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;"></div>
         </div>
-        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
-            <div id="dividendYieldInfo" style="display:flex; align-items:center; gap:24px;">
+            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:8px;">
+                <!-- 簡易取得モードトグル -->
+                <label class="lite-mode-wrap" id="liteModeToggleLabel" title="簡易取得モード：事業内容と売上・利益グラフのみ取得">
+                    <input type="checkbox" id="liteModeToggle">
+                    <span class="lite-toggle"></span>
+                    <span class="lite-label">⚡ 簡易取得モード</span>
+                </label>
+                <!-- 簡易モード時の全データ取得ボタン -->
+                <button id="fullDataBtn" class="hidden" onclick="fetchFullData()" style="
+                    background: linear-gradient(135deg, #1e40af, #3b82f6);
+                    border: 1px solid #60a5fa;
+                    border-radius: 20px;
+                    color: #fff;
+                    font-size: 12px;
+                    font-weight: bold;
+                    padding: 5px 14px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    transition: all 0.2s;
+                " onmouseover="this.style.background='linear-gradient(135deg,#2563eb,#60a5fa)'" onmouseout="this.style.background='linear-gradient(135deg,#1e40af,#3b82f6)'">
+                    📥 全データ取得
+                </button>
+                <div id="dividendYieldInfo" style="display:flex; align-items:center; gap:24px;">
                 <div style="text-align:right;">
                     <div style="font-size:11px; color:#888; margin-bottom:2px;">現在株価</div>
                     <div id="currentPriceDisp" style="font-size:20px; font-weight:700; color:#e0e0e0;">---</div>
@@ -141,6 +203,7 @@
                 </div>
             </div>
             <div style="display:flex; gap:12px; align-items:center;">
+                <a id="headerLinkHP" href="#" target="_blank" class="ext-link hidden" style="padding:4px 8px; font-size:11px;">HP</a>
                 <a id="headerLinkShareholder" href="#" target="_blank" class="ext-link hidden" style="padding:4px 8px; font-size:11px;">大株主</a>
                 <a id="headerLinkIR" href="#" target="_blank" class="ext-link hidden" style="padding:4px 8px; font-size:11px;">IR資料</a>
                 <div id="updateTime" style="font-size: 12px; color: #888;"></div>
@@ -198,12 +261,16 @@
     <div id="newsArea" class="hidden" style="margin: 20px; padding: 15px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
         <div style="display:flex; border-bottom:1px solid #333; margin-bottom:12px;">
             <button id="tabKabutan" style="background:transparent; color:#60a5fa; border:none; border-bottom:2px solid #60a5fa; padding:8px 16px; cursor:pointer; font-weight:bold;">株探</button>
-            <button id="tabYahoo" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">Yahoo!</button>
             <button id="tabNikkei" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">日経</button>
+            <button id="tabMinkabu" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">みんかぶ</button>
+            <button id="tabYahoo" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">Yahoo!</button>
+            <button id="tabTraders" style="background:transparent; color:#888; border:none; padding:8px 16px; cursor:pointer;">トレーダーズ</button>
         </div>
         <ul id="newsListKabutan" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
-        <ul id="newsListYahoo" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
         <ul id="newsListNikkei" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
+        <ul id="newsListMinkabu" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
+        <ul id="newsListYahoo" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
+        <ul id="newsListTraders" class="hidden" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;"></ul>
         <div id="newsMoreLink" style="margin-top:12px; text-align:right;">
             <a id="newsMoreAnchor" href="#" target="_blank" style="font-size:11px; color:#60a5fa; text-decoration:none;">ニュースをもっと見る →</a>
         </div>
@@ -226,10 +293,15 @@
     </div>
 
     <script>
-        window.updateProgress = function(percent, message) {
+        window.updateProgress = function(percent, message, symbol = null) {
             const overlay = document.getElementById('loadingOverlay');
             const bar = document.getElementById('loadingBar');
             const text = document.getElementById('loadingText');
+            const title = document.getElementById('loadingTitle');
+            if (symbol && title) {
+                const code = symbol.replace('.T', '');
+                title.textContent = `${code} データを取得中...`;
+            }
             if (overlay) {
                 if (percent > 0 && percent < 100) {
                     overlay.style.display = 'flex';
@@ -252,11 +324,75 @@
         let equityRatioChart = null;
         let perChart = null;
 
+        // --- 簡易取得モードの初期化＆状態取得 ---
+        const liteModeToggle = document.getElementById('liteModeToggle');
+        const fullDataBtn = document.getElementById('fullDataBtn');
+        const saved = localStorage.getItem('financeWindow_liteMode');
+        if (saved === 'true') liteModeToggle.checked = true;
+
+        // 簡易モード切り替え時に全データ取得ボタンの表示切替
+        function syncFullDataBtn() {
+            if (liteModeToggle.checked) {
+                fullDataBtn.classList.remove('hidden');
+                fullDataBtn.style.display = 'flex';
+            } else {
+                fullDataBtn.style.display = 'none';
+            }
+        }
+        liteModeToggle.addEventListener('change', () => {
+            localStorage.setItem('financeWindow_liteMode', liteModeToggle.checked);
+            syncFullDataBtn();
+        });
+        syncFullDataBtn(); // 初期状態を反映
+
+        // 現在表示中の銘柄情報を保持
+        let _currentSymbol = null;
+        let _currentName = null;
+
+        // 全データ取得ボタンのハンドラ
+        window.fetchFullData = function() {
+            if (!_currentSymbol) return;
+            let querySymbol = _currentSymbol;
+            if (!querySymbol.endsWith('.T') && !isNaN(querySymbol)) {
+                querySymbol += '.T';
+            }
+            if (window.opener && !window.opener.closed && typeof window.opener.fetchAndRenderFinanceDataFull === 'function') {
+                fullDataBtn.disabled = true;
+                fullDataBtn.textContent = '取得中...';
+                window.opener.fetchAndRenderFinanceDataFull(querySymbol);
+            }
+        };
+
+        // 取得完了時にボタンをリセットする関数（app.jsから呼び出す）
+        window.resetFullDataBtn = function() {
+            fullDataBtn.disabled = false;
+            fullDataBtn.innerHTML = '📥 全データ取得';
+        };
+
+        // 親ウィンドウから簡易モードの状態を問い合わせるために公開
+        window.isLiteMode = function() { return liteModeToggle.checked; };
+
         Chart.register(ChartDataLabels);
         Chart.defaults.plugins.datalabels = { display: false }; // デフォルトは非表示
 
         // 親ウィンドウからのデータ受け取り用関数
         window.updateFinancials = function(symbol, name, data) {
+            const liteMode = data.isLite !== undefined ? data.isLite : (data.dividendData === null && data.newsInfo === null);
+
+            // 現在銘柄を保存
+            _currentSymbol = symbol;
+            _currentName = name;
+
+            // 簡易モードの場合は全データ取得ボタンを表示
+            if (liteMode) {
+                fullDataBtn.classList.remove('hidden');
+                fullDataBtn.style.display = 'flex';
+                fullDataBtn.disabled = false;
+                fullDataBtn.innerHTML = '📥 全データ取得';
+            } else {
+                fullDataBtn.style.display = 'none';
+            }
+
             // ローディング画面を非表示
             const overlay = document.getElementById('loadingOverlay');
             if (overlay) overlay.style.display = 'none';
@@ -264,7 +400,7 @@
             document.getElementById('noData').classList.add('hidden');
             document.getElementById('chartsArea').classList.remove('hidden');
             document.getElementById('stockTitle').textContent = `${symbol} ${name}`;
-            document.getElementById('updateTime').textContent = "最終更新: " + new Date().toLocaleTimeString();
+            document.getElementById('updateTime').textContent = "最終更新: " + new Date().toLocaleTimeString() + (liteMode ? ' ⚡簡易' : '');
 
             // 外部リンクの設定
             document.getElementById('externalLinksArea').classList.remove('hidden');
@@ -276,13 +412,28 @@
             document.getElementById('linkMinkabu').href = `https://minkabu.jp/stock/${symbol}`;
             document.getElementById('linkTraders').href = `https://www.traders.co.jp/stocks/${symbol}/`;
 
-            // ヘッダーリンク（大株主・IR資料）の設定
+            // ヘッダーリンク（HP・大株主・IR資料）の設定
+            const linkHP = document.getElementById('headerLinkHP');
             const linkShareholder = document.getElementById('headerLinkShareholder');
             const linkIR = document.getElementById('headerLinkIR');
-            linkShareholder.href = `https://www.buffett-code.com/company/${symbol}/mainshareholder`;
-            linkIR.href = `https://www.buffett-code.com/company/${symbol}/library`;
-            linkShareholder.classList.remove('hidden');
-            linkIR.classList.remove('hidden');
+            
+            if (data.nikkeiProfileInfo && data.nikkeiProfileInfo.url) {
+                linkHP.href = data.nikkeiProfileInfo.url;
+                linkHP.classList.remove('hidden');
+            } else {
+                linkHP.classList.add('hidden');
+            }
+
+            if (liteMode) {
+                // 簡易モード: 大株主・IRリンクも非表示
+                linkShareholder.classList.add('hidden');
+                linkIR.classList.add('hidden');
+            } else {
+                linkShareholder.href = `https://www.buffett-code.com/company/${symbol}/mainshareholder`;
+                linkIR.href = `https://www.buffett-code.com/company/${symbol}/library`;
+                linkShareholder.classList.remove('hidden');
+                linkIR.classList.remove('hidden');
+            }
 
             // 株価・配当利回りの表示
             const price = data.currentPrice;
@@ -357,6 +508,22 @@
                 }
             }
 
+            // 簡易モード時は優待・ニュース・配当グラフを即座非表示にして終了
+            if (liteMode) {
+                document.getElementById('chartsArea').classList.add('lite-layout');
+                document.getElementById('yutaiArea').classList.add('hidden');
+                document.getElementById('newsArea').classList.add('hidden');
+                document.getElementById('dividendCard').classList.add('hidden');
+                document.getElementById('perCard').classList.add('hidden');
+                document.getElementById('dividendYieldInfo').style.display = 'none';
+                renderCharts(data); // equityRatioCardの表示/非表示はrenderCharts内で判定
+                return;
+            }
+
+            // 通常モード: lite-layoutクラスを除去し全セクション表示
+            document.getElementById('chartsArea').classList.remove('lite-layout');
+            document.getElementById('dividendYieldInfo').style.display = 'flex';
+
             if (y && y.has_yutai) {
                 // 長期保有優遇
                 if (y.long_term) {
@@ -387,9 +554,13 @@
             const newsListKabutan = document.getElementById('newsListKabutan');
             const newsListYahoo = document.getElementById('newsListYahoo');
             const newsListNikkei = document.getElementById('newsListNikkei');
+            const newsListMinkabu = document.getElementById('newsListMinkabu');
+            const newsListTraders = document.getElementById('newsListTraders');
             newsListKabutan.innerHTML = '';
             newsListYahoo.innerHTML = '';
             newsListNikkei.innerHTML = '';
+            newsListMinkabu.innerHTML = '';
+            newsListTraders.innerHTML = '';
 
             const renderNews = (listElement, newsData) => {
                 newsData.forEach(n => {
@@ -423,69 +594,94 @@
             const hasKabutan = data.newsInfo && data.newsInfo.length > 0;
             const hasYahoo = data.yahooNewsInfo && data.yahooNewsInfo.length > 0;
             const hasNikkei = data.nikkeiNewsInfo && data.nikkeiNewsInfo.length > 0;
+            const hasMinkabu = data.minkabuNewsInfo && data.minkabuNewsInfo.length > 0;
+            const hasTraders = data.tradersWebNewsInfo && data.tradersWebNewsInfo.length > 0;
 
             if (hasKabutan) renderNews(newsListKabutan, data.newsInfo);
-            if (hasYahoo) renderNews(newsListYahoo, data.yahooNewsInfo);
             if (hasNikkei) renderNews(newsListNikkei, data.nikkeiNewsInfo);
+            if (hasMinkabu) renderNews(newsListMinkabu, data.minkabuNewsInfo);
+            if (hasYahoo) renderNews(newsListYahoo, data.yahooNewsInfo);
+            if (hasTraders) renderNews(newsListTraders, data.tradersWebNewsInfo);
 
-            if (hasKabutan || hasYahoo || hasNikkei) {
+            if (hasKabutan || hasYahoo || hasNikkei || hasMinkabu || hasTraders) {
                 newsArea.classList.remove('hidden');
                 
                 // タブ切り替えロジック
                 const tabKabutan = document.getElementById('tabKabutan');
                 const tabYahoo = document.getElementById('tabYahoo');
                 const tabNikkei = document.getElementById('tabNikkei');
+                const tabMinkabu = document.getElementById('tabMinkabu');
+                const tabTraders = document.getElementById('tabTraders');
                 
                 // 件数の表示
                 tabKabutan.textContent = `株探 (${data.newsInfo?.length || 0})`;
-                tabYahoo.textContent = `Yahoo! (${data.yahooNewsInfo?.length || 0})`;
                 tabNikkei.textContent = `日経 (${data.nikkeiNewsInfo?.length || 0})`;
+                tabMinkabu.textContent = `みんかぶ (${data.minkabuNewsInfo?.length || 0})`;
+                tabYahoo.textContent = `Yahoo! (${data.yahooNewsInfo?.length || 0})`;
+                tabTraders.textContent = `トレーダーズ (${data.tradersWebNewsInfo?.length || 0})`;
                 
                 const activateTab = (tabName) => {
                     const isKabutan = tabName === 'kabutan';
                     const isYahoo = tabName === 'yahoo';
                     const isNikkei = tabName === 'nikkei';
+                    const isMinkabu = tabName === 'minkabu';
+                    const isTraders = tabName === 'traders';
 
                     tabKabutan.style.color = isKabutan ? '#60a5fa' : '#888';
                     tabKabutan.style.borderBottom = isKabutan ? '2px solid #60a5fa' : 'none';
                     tabKabutan.style.fontWeight = isKabutan ? 'bold' : 'normal';
                     
-                    tabYahoo.style.color = isYahoo ? '#ff4d4f' : '#888';
-                    tabYahoo.style.borderBottom = isYahoo ? '2px solid #ff4d4f' : 'none';
-                    tabYahoo.style.fontWeight = isYahoo ? 'bold' : 'normal';
-
                     tabNikkei.style.color = isNikkei ? '#facc15' : '#888'; // Nikkei yellow/gold
                     tabNikkei.style.borderBottom = isNikkei ? '2px solid #facc15' : 'none';
                     tabNikkei.style.fontWeight = isNikkei ? 'bold' : 'normal';
 
+                    tabMinkabu.style.color = isMinkabu ? '#34d399' : '#888'; // Minkabu green
+                    tabMinkabu.style.borderBottom = isMinkabu ? '2px solid #34d399' : 'none';
+                    tabMinkabu.style.fontWeight = isMinkabu ? 'bold' : 'normal';
+
+                    tabYahoo.style.color = isYahoo ? '#ff4d4f' : '#888';
+                    tabYahoo.style.borderBottom = isYahoo ? '2px solid #ff4d4f' : 'none';
+                    tabYahoo.style.fontWeight = isYahoo ? 'bold' : 'normal';
+
+                    tabTraders.style.color = isTraders ? '#a78bfa' : '#888'; // Traders purple
+                    tabTraders.style.borderBottom = isTraders ? '2px solid #a78bfa' : 'none';
+                    tabTraders.style.fontWeight = isTraders ? 'bold' : 'normal';
+
+                    newsListKabutan.classList.toggle('hidden', !isKabutan);
+                    newsListNikkei.classList.toggle('hidden', !isNikkei);
+                    newsListMinkabu.classList.toggle('hidden', !isMinkabu);
+                    newsListYahoo.classList.toggle('hidden', !isYahoo);
+                    newsListTraders.classList.toggle('hidden', !isTraders);
+
                     if (isKabutan) {
-                        newsListKabutan.classList.remove('hidden');
-                        newsListYahoo.classList.add('hidden');
-                        newsListNikkei.classList.add('hidden');
                         document.getElementById('newsMoreAnchor').href = `https://kabutan.jp/stock/news?code=${symbol}`;
                         document.getElementById('newsMoreAnchor').textContent = '株探でニュースをもっと見る →';
-                    } else if (isYahoo) {
-                        newsListKabutan.classList.add('hidden');
-                        newsListYahoo.classList.remove('hidden');
-                        newsListNikkei.classList.add('hidden');
-                        document.getElementById('newsMoreAnchor').href = `https://finance.yahoo.co.jp/quote/${symbol}.T/news`;
-                        document.getElementById('newsMoreAnchor').textContent = 'Yahoo!ファイナンスでニュースをもっと見る →';
-                    } else {
-                        newsListKabutan.classList.add('hidden');
-                        newsListYahoo.classList.add('hidden');
-                        newsListNikkei.classList.remove('hidden');
+                    } else if (isNikkei) {
                         document.getElementById('newsMoreAnchor').href = `https://www.nikkei.com/nkd/company/news/?scode=${symbol}`;
                         document.getElementById('newsMoreAnchor').textContent = '日経電子版でニュースをもっと見る →';
+                    } else if (isMinkabu) {
+                        document.getElementById('newsMoreAnchor').href = `https://minkabu.jp/stock/${symbol}/news`;
+                        document.getElementById('newsMoreAnchor').textContent = 'みんかぶでニュースをもっと見る →';
+                    } else if (isYahoo) {
+                        document.getElementById('newsMoreAnchor').href = `https://finance.yahoo.co.jp/quote/${symbol}.T/news`;
+                        document.getElementById('newsMoreAnchor').textContent = 'Yahoo!ファイナンスでニュースをもっと見る →';
+                    } else if (isTraders) {
+                        document.getElementById('newsMoreAnchor').href = `https://www.traders.co.jp/stocks/${symbol.replace('.T', '')}/news`;
+                        document.getElementById('newsMoreAnchor').textContent = 'トレーダーズ・ウェブでニュースをもっと見る →';
                     }
                 };
 
                 tabKabutan.onclick = () => activateTab('kabutan');
-                tabYahoo.onclick = () => activateTab('yahoo');
                 tabNikkei.onclick = () => activateTab('nikkei');
+                tabMinkabu.onclick = () => activateTab('minkabu');
+                tabYahoo.onclick = () => activateTab('yahoo');
+                tabTraders.onclick = () => activateTab('traders');
 
-                // デフォルトの表示優先順位: 株探 -> 日経 -> Yahoo
+                // デフォルトの表示優先順位: 株探 -> 日経 -> みんかぶ -> トレーダーズ -> Yahoo
                 if (hasKabutan) activateTab('kabutan');
                 else if (hasNikkei) activateTab('nikkei');
+                else if (hasMinkabu) activateTab('minkabu');
+                else if (hasTraders) activateTab('traders');
                 else activateTab('yahoo');
             } else {
                 newsArea.classList.add('hidden');
