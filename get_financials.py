@@ -59,6 +59,7 @@ def get_from_nikkei(code):
         
         income_table = tables[0] if len(tables) > 0 else None
         bs_table = tables[4] if len(tables) > 4 else None
+        ratio_table = tables[2] if len(tables) > 2 else None  # 財務指標テーブル
         
         if not income_table:
             return None
@@ -101,6 +102,17 @@ def get_from_nikkei(code):
         
         if not revenue_key:
             return None
+
+        # 自己資本比率の取得（Table 2）
+        equity_ratio_data = {}  # period -> %
+        if ratio_table:
+            ratio_periods, ratio_data = parse_table(ratio_table)
+            eq_ratio_key = next((k for k in ratio_data if '自己資本比率' in k or '自己資本比' in k), None)
+            if eq_ratio_key:
+                eq_ratio_vals = ratio_data[eq_ratio_key]
+                for i, period in enumerate(ratio_periods):
+                    if i < len(eq_ratio_vals):
+                        equity_ratio_data[period] = parse_number(eq_ratio_vals[i])
         
         income_history = []
         for i, period in enumerate(periods):
@@ -129,7 +141,8 @@ def get_from_nikkei(code):
                 "grossProfit":    {"raw": 0.0},   # 日経テーブルには粗利なし
                 "operatingIncome":{"raw": op},
                 "netIncome":      {"raw": ni},
-                "stockholdersEquity": {"raw": eq}
+                "stockholdersEquity": {"raw": eq},
+                "equityRatio":    {"raw": equity_ratio_data.get(period)}
             })
         
         # 純資産リスト（ROE計算用のbalanceSheetStatements）
@@ -184,6 +197,18 @@ def get_forecast_from_yahoo_jp(symbol):
         pass
     return None
 
+def get_business_info(symbol):
+    """yfinanceでbusiness summaryと業種情報を取得"""
+    try:
+        info = yf.Ticker(symbol).info
+        return {
+            "summary": info.get("longBusinessSummary", ""),
+            "sector":  info.get("sector", ""),
+            "industry": info.get("industry", "")
+        }
+    except:
+        return {"summary": "", "sector": "", "industry": ""}
+
 def get_financials(symbol):
     # 日本株(.T)は日経から取得
     if symbol.endswith('.T'):
@@ -194,6 +219,9 @@ def get_financials(symbol):
             forecast = get_forecast_from_yahoo_jp(symbol)
             if forecast:
                 data["quoteSummary"]["result"][0]["earningsEstimate"] = forecast
+            # 事業内容をyfinanceから追加
+            biz = get_business_info(symbol)
+            data["quoteSummary"]["result"][0]["businessInfo"] = biz
             return data
     
     # 米国株などはyfinanceにフォールバック

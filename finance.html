@@ -28,6 +28,12 @@
             margin-bottom: 20px;
             padding-bottom: 10px;
             border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            background-color: var(--bg-color);
+            z-index: 100;
+            padding-top: 20px;
+            margin-top: -20px;
         }
         .stock-info h1 {
             margin: 0;
@@ -47,7 +53,18 @@
         }
         @media (min-width: 1000px) {
             .charts-container {
-                grid-template-columns: 1fr 1fr;
+                grid-template-columns: repeat(6, 1fr);
+            }
+            /* 上段: 売上グラフ + 利益グラフ (3+3=6列) */
+            #chartsArea > .chart-card:nth-child(1),
+            #chartsArea > .chart-card:nth-child(2) {
+                grid-column: span 3;
+            }
+            /* 下段: 配当 + 自己資本比率 + PER (2+2+2=6列) */
+            #dividendCard,
+            #equityRatioCard,
+            #perCard {
+                grid-column: span 2;
             }
         }
         .no-data {
@@ -60,13 +77,43 @@
 </head>
 <body>
     <div class="header">
-        <div class="stock-info">
+        <div class="stock-info" style="display: flex; flex-direction: column; gap: 8px;">
             <h1 id="stockTitle">銘柄を選択してください</h1>
+            <div id="headerBadges" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;"></div>
+        </div>
+        <div id="dividendYieldInfo" style="display:flex; align-items:center; gap:24px;">
+            <div style="text-align:right;">
+                <div style="font-size:11px; color:#888; margin-bottom:2px;">現在株価</div>
+                <div id="currentPriceDisp" style="font-size:20px; font-weight:700; color:#e0e0e0;">---</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:11px; color:#888; margin-bottom:2px;">配当利回り（会社予想）</div>
+                <div id="dividendYieldDisp" style="font-size:20px; font-weight:700; color:#FFAB00;">--.--%</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:11px; color:#888; margin-bottom:2px;">年間配当（最新）</div>
+                <div id="annualDivDisp" style="font-size:20px; font-weight:700; color:#b3b3b3;">--- 円</div>
+            </div>
         </div>
         <div id="updateTime" style="font-size: 12px; color: #888;"></div>
     </div>
 
     <div id="noData" class="no-data">メイン画面で銘柄を選択するとグラフが表示されます</div>
+
+    <!-- 事業内容 -->
+    <div id="businessInfoBox" class="hidden" style="
+        margin: 0 20px 0 20px;
+        padding: 12px 16px;
+        background: #1e2130;
+        border-left: 3px solid #4a90d9;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #c0c0c0;
+        line-height: 1.6;
+    ">
+        <div id="businessSector" style="font-size:11px; color:#888; margin-bottom:4px;"></div>
+        <div id="businessSummaryText"></div>
+    </div>
 
     <div id="chartsArea" class="charts-container hidden">
         <div class="chart-card">
@@ -75,11 +122,42 @@
         <div class="chart-card">
             <canvas id="financeChartRight"></canvas>
         </div>
+        <div class="chart-card" id="dividendCard">
+            <canvas id="financeChartDividend"></canvas>
+        </div>
+        <div class="chart-card" id="equityRatioCard">
+            <canvas id="financeChartEquityRatio"></canvas>
+        </div>
+        <div class="chart-card" id="perCard">
+            <canvas id="financeChartPER"></canvas>
+        </div>
+    </div>
+
+    <!-- 株主優待情報 -->
+    <div id="yutaiArea" class="hidden" style="margin: 20px 20px 0 20px; padding: 15px 18px; background: linear-gradient(135deg, #1a2035 0%, #1e2440 100%); border: 1px solid #2d4a7a; border-radius: 8px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; border-bottom:1px solid #2d4a7a; padding-bottom:10px;">
+            <h3 style="margin:0; color:#7eb8f7; font-size:14px; display:flex; align-items:center; gap:8px;">
+                <span style="font-size:18px;">🎁</span> 株主優待
+            </h3>
+            <div id="yutaiMeta" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;"></div>
+        </div>
+        <div id="yutaiContent"></div>
+    </div>
+
+    <!-- ニュース一覧 -->
+    <div id="newsArea" class="hidden" style="margin: 20px; padding: 15px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px;">
+        <h3 style="margin-top:0; color:#ccc; font-size:14px; border-bottom:1px solid #333; padding-bottom:8px; margin-bottom:12px;">直近のニュース (株探)</h3>
+        <ul id="newsList" style="list-style:none; padding:0; margin:0; font-size:12px; line-height:1.6;">
+            <!-- ニュース項目がここに入る -->
+        </ul>
     </div>
 
     <script>
         let leftChart = null;
         let rightChart = null;
+        let dividendChart = null;
+        let equityRatioChart = null;
+        let perChart = null;
 
         Chart.register(ChartDataLabels);
         Chart.defaults.plugins.datalabels = { display: false }; // デフォルトは非表示
@@ -91,12 +169,147 @@
             document.getElementById('stockTitle').textContent = `${symbol} ${name}`;
             document.getElementById('updateTime').textContent = "最終更新: " + new Date().toLocaleTimeString();
 
+            // 株価・配当利回りの表示
+            const price = data.currentPrice;
+            const divData = data.dividendData;
+            if (price && divData && divData.dividends && divData.dividends.length > 0) {
+                // 最新の配当額（末尾が予想なら予想を使い、なければ最終実績）
+                const lastDiv = divData.dividends[divData.dividends.length - 1];
+                document.getElementById('currentPriceDisp').textContent = price.toLocaleString() + ' 円';
+                document.getElementById('annualDivDisp').textContent = (lastDiv !== null ? lastDiv : '---') + ' 円';
+                if (lastDiv !== null && price > 0) {
+                    const yieldPct = (lastDiv / price * 100).toFixed(2);
+                    document.getElementById('dividendYieldDisp').textContent = yieldPct + '%';
+                } else {
+                    document.getElementById('dividendYieldDisp').textContent = '--.-- %';
+                }
+            } else {
+                document.getElementById('currentPriceDisp').textContent = price ? price.toLocaleString() + ' 円' : '---';
+                document.getElementById('dividendYieldDisp').textContent = '--.-- %';
+                document.getElementById('annualDivDisp').textContent = '--- 円';
+            }
+
+            // 事業内容の表示
+            const biz = data.businessInfo;
+            const bizBox = document.getElementById('businessInfoBox');
+            if (biz && biz.summary) {
+                document.getElementById('businessSector').textContent = (biz.sector || '') + (biz.fiscal_month ? ` (${biz.fiscal_month})` : '');
+                document.getElementById('businessSummaryText').textContent = biz.summary;
+                bizBox.classList.remove('hidden');
+            } else {
+                bizBox.classList.add('hidden');
+            }
+
+            // ---- 株主優待の表示 ----
+            const yutaiArea = document.getElementById('yutaiArea');
+            const yutaiMeta = document.getElementById('yutaiMeta');
+            const yutaiContent = document.getElementById('yutaiContent');
+            const headerBadges = document.getElementById('headerBadges');
+            const y = data.yutaiInfo;
+
+            headerBadges.innerHTML = '';
+            yutaiMeta.innerHTML = '';
+
+            // 決算期バッジを最初に追加
+            if (biz && biz.fiscal_month) {
+                headerBadges.innerHTML += `<span style="background:#1e293b; color:#cbd5e1; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid #475569;">🏢 決算期: ${biz.fiscal_month}</span>`;
+            }
+
+            if (y) {
+                // 決算発表予定日バッジ
+                if (y.kessan_date) {
+                    headerBadges.innerHTML += `<span style="background:#2d2410; color:#fbbf24; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid #7a5f0a;">📋 決算発表: ${y.kessan_date}</span>`;
+                }
+
+                // 権利確定月バッジ
+                if (y.kenri_month) {
+                    headerBadges.innerHTML += `<span style="background:#1b3a6b; color:#7eb8f7; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid #2d5fa0;">📅 権利確定月: ${y.kenri_month}</span>`;
+                }
+
+                // 権利付き最終日バッジ
+                if (y.kenri_lastday) {
+                    headerBadges.innerHTML += `<span style="background:#3a1b1b; color:#f87171; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid #7a2d2d; font-weight:bold;">⚡ 権利付き最終日: ${y.kenri_lastday}</span>`;
+                }
+
+                // 最低株数
+                if (y.min_shares) {
+                    headerBadges.innerHTML += `<span style="background:#1b2e1b; color:#86efac; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid #2d5f2d;">📊 最低: ${y.min_shares}</span>`;
+                }
+
+                // 優待+配当利回り
+                if (y.yield_total) {
+                    headerBadges.innerHTML += `<span style="background:#1a1a3a; color:#a78bfa; font-size:11px; padding:3px 8px; border-radius:12px; border:1px solid #5f3fa0;">💰 優待+配当利回り: ${y.yield_total}</span>`;
+                }
+            }
+
+            if (y && y.has_yutai) {
+                // 長期保有優遇
+                if (y.long_term) {
+                    headerBadges.innerHTML += `<span style="color:#fb923c; font-size:11px;">⭐ 長期保有優遇あり</span>`;
+                }
+
+                // 優待内容
+                let contentHtml = '';
+                if (y.category) {
+                    contentHtml += `<div style="margin-bottom:6px; color:#a78bfa; font-size:11px;">🏷 カテゴリ: ${y.category}</div>`;
+                }
+                if (y.content) {
+                    contentHtml += `<div style="font-size:12px; color:#d0d0d0; line-height:1.7; padding:8px; background:rgba(0,0,0,0.2); border-radius:4px;">${y.content}</div>`;
+                }
+
+                // 株探リンク
+                const code = document.getElementById('stockTitle').textContent.split(' ')[0];
+                contentHtml += `<div style="margin-top:8px; text-align:right;"><a href="https://kabutan.jp/stock/yutai?code=${code}" target="_blank" style="font-size:11px; color:#60a5fa; text-decoration:none;">株探で詳細を見る →</a></div>`;
+
+                yutaiContent.innerHTML = contentHtml;
+                yutaiArea.classList.remove('hidden');
+            } else {
+                yutaiArea.classList.add('hidden');
+            }
+
+            // ---- ニュースの表示 ----
+            const newsArea = document.getElementById('newsArea');
+            const newsList = document.getElementById('newsList');
+            newsList.innerHTML = '';
+            if (data.newsInfo && data.newsInfo.length > 0) {
+                data.newsInfo.forEach(n => {
+                    const li = document.createElement('li');
+                    li.style.marginBottom = '6px';
+                    
+                    let color = '#ccc';
+                    let fontWeight = 'normal';
+                    if (n.importance === 'positive') {
+                        color = '#4ade80'; // 緑
+                        fontWeight = 'bold';
+                    } else if (n.importance === 'negative') {
+                        color = '#f87171'; // 赤
+                        fontWeight = 'bold';
+                    } else if (n.importance === 'important') {
+                        color = '#60a5fa'; // 青
+                        fontWeight = 'bold';
+                    }
+
+                    li.innerHTML = `
+                        <span style="color:#888; margin-right:8px; display:inline-block; width:110px;">${n.date}</span>
+                        <span style="color:#aaa; margin-right:8px; font-size:11px; border:1px solid #444; padding:1px 4px; border-radius:3px;">${n.category}</span>
+                        <a href="${n.link}" target="_blank" style="color:${color}; font-weight:${fontWeight}; text-decoration:none; transition: color 0.2s;">
+                            ${n.title}
+                        </a>
+                    `;
+                    newsList.appendChild(li);
+                });
+                newsArea.classList.remove('hidden');
+            } else {
+                newsArea.classList.add('hidden');
+            }
+
             renderCharts(data);
         };
 
         function renderCharts(data) {
             if (leftChart) leftChart.destroy();
             if (rightChart) rightChart.destroy();
+            if (dividendChart) dividendChart.destroy();
 
             Chart.defaults.color = '#888';
 
@@ -208,6 +421,186 @@
                     }
                 }
             });
+
+            // Nikkei Dividend Chart
+            if (data.dividendData && data.dividendData.labels && data.dividendData.labels.length > 0) {
+                document.getElementById('dividendCard').classList.remove('hidden');
+                const ctxDiv = document.getElementById('financeChartDividend').getContext('2d');
+                dividendChart = new Chart(ctxDiv, {
+                    type: 'bar',
+                    data: {
+                        labels: data.dividendData.labels,
+                        datasets: [
+                            {
+                                label: '配当 (円)',
+                                data: data.dividendData.dividends,
+                                backgroundColor: '#b3b3b3',
+                                yAxisID: 'y',
+                                order: 1,
+                                datalabels: {
+                                    display: true,
+                                    align: 'top',
+                                    anchor: 'end',
+                                    offset: 0,
+                                    color: '#e0e0e0',
+                                    font: (context) => {
+                                        const label = context.chart.data.labels[context.dataIndex];
+                                        return { size: 10, weight: label.includes('予') ? 'normal' : 'bold' };
+                                    },
+                                    formatter: (v) => v !== null ? v : ''
+                                }
+                            },
+                            {
+                                label: '配当性向 (%)',
+                                data: data.dividendData.payouts,
+                                type: 'line',
+                                borderColor: '#009900',
+                                backgroundColor: '#009900',
+                                yAxisID: 'y1',
+                                tension: 0.1,
+                                order: 0
+                            },
+
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: { display: true, text: '配当推移（円、%）', align: 'start', color: '#ccc' },
+                            legend: { position: 'bottom', labels: { boxWidth: 10, usePointStyle: true, font: { size: 10 } } },
+                            datalabels: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                position: 'left',
+                                grace: '10%',
+                                grid: { color: '#333' },
+                                title: { display: true, text: '配当 (円)', color: '#888', font: { size: 10 } }
+                            },
+                            y1: {
+                                position: 'right',
+                                grace: '10%',
+                                grid: { drawOnChartArea: false },
+                                title: { display: true, text: '配当性向 (%)', color: '#888', font: { size: 10 } }
+                            }
+                        }
+                    }
+                });
+            } else {
+                document.getElementById('dividendCard').classList.add('hidden');
+            }
+
+            // ---- 自己資本比率グラフ ----
+            if (equityRatioChart) equityRatioChart.destroy();
+            const erData = (data.equityRatios || []).filter(v => v !== null);
+            if (data.equityRatios && erData.length > 0) {
+                document.getElementById('equityRatioCard').classList.remove('hidden');
+                const ctxER = document.getElementById('financeChartEquityRatio').getContext('2d');
+                equityRatioChart = new Chart(ctxER, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: '自己資本比率 (%)',
+                            data: data.equityRatios,
+                            backgroundColor: data.equityRatios.map(v => v !== null ? 'rgba(99, 179, 237, 0.7)' : 'transparent'),
+                            borderColor: 'rgba(99, 179, 237, 1)',
+                            borderWidth: 1,
+                            datalabels: {
+                                display: true,
+                                align: 'top',
+                                anchor: 'end',
+                                offset: 0,
+                                color: '#63b3ed',
+                                font: { size: 10, weight: 'bold' },
+                                formatter: (v) => v !== null ? v.toFixed(1) : ''
+                            }
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: { display: true, text: '自己資本比率 (%)', align: 'start', color: '#ccc' },
+                            legend: { display: false },
+                        },
+                        scales: {
+                            y: {
+                                grace: '10%',
+                                min: 0,
+                                grid: { color: '#333' },
+                                title: { display: true, text: '(%)', color: '#888', font: { size: 10 } }
+                            }
+                        }
+                    }
+                });
+            } else {
+                document.getElementById('equityRatioCard').classList.add('hidden');
+            }
+
+            // ---- PERグラフ (現在株価 / EPS) ----
+            if (perChart) perChart.destroy();
+            const divD = data.dividendData;
+            const price = data.currentPrice;
+            if (divD && divD.eps && price) {
+                // EPSデータがある年度のみ表示
+                const perLabels = [];
+                const perValues = [];
+                divD.labels.forEach((lbl, i) => {
+                    const eps = divD.eps[i];
+                    if (eps && eps > 0 && !lbl.endsWith('予')) {
+                        perLabels.push(lbl);
+                        perValues.push(parseFloat((price / eps).toFixed(1)));
+                    }
+                });
+                if (perValues.length > 0) {
+                    document.getElementById('perCard').classList.remove('hidden');
+                    const ctxPER = document.getElementById('financeChartPER').getContext('2d');
+                    perChart = new Chart(ctxPER, {
+                        type: 'bar',
+                        data: {
+                            labels: perLabels,
+                            datasets: [{
+                                label: 'PER (倍)',
+                                data: perValues,
+                                backgroundColor: 'rgba(246, 173, 85, 0.7)',
+                                borderColor: 'rgba(246, 173, 85, 1)',
+                                borderWidth: 1,
+                                datalabels: {
+                                    display: true,
+                                    align: 'top',
+                                    anchor: 'end',
+                                    offset: 0,
+                                    color: '#f6ad55',
+                                    font: { size: 10, weight: 'bold' },
+                                    formatter: (v) => v !== null ? v.toFixed(1) : ''
+                                }
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                title: { display: true, text: `PER (倍) ※現在株価${price.toLocaleString()}円で計算`, align: 'start', color: '#ccc' },
+                                legend: { display: false },
+                            },
+                            scales: {
+                                y: {
+                                    grace: '10%',
+                                    min: 0,
+                                    grid: { color: '#333' },
+                                    title: { display: true, text: '(倍)', color: '#888', font: { size: 10 } }
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    document.getElementById('perCard').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('perCard').classList.add('hidden');
+            }
         }
     </script>
 </body>

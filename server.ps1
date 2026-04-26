@@ -135,7 +135,99 @@ try {
             $response.Close()
             continue
         }
-        
+        # Proxy for Yahoo JP Dividend
+        if ($urlPath -eq "api/nikkei_dividend") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $json = python yahoo_dividend_scraper.py $symbol
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Yahoo Dividend (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Yahoo Dividend Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
+        # Proxy for Kabutan Business Info (日本語事業概要)
+        if ($urlPath -eq "api/kabutan_biz") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $json = python kabutan_scraper.py $symbol
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Kabutan BizInfo (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Kabutan BizInfo Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
+        # Proxy for Kabutan News (日本語ニュース)
+        if ($urlPath -eq "api/kabutan_news") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $json = python kabutan_news.py $symbol
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Kabutan News (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Kabutan News Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
+
+        # Proxy for Kabutan Yutai (株主優待情報)
+        if ($urlPath -eq "api/kabutan_yutai") {
+            $symbol = $request.QueryString["symbol"]
+            if (-not $symbol) {
+                $response.StatusCode = 400
+                $response.Close()
+                continue
+            }
+            try {
+                $json = python kabutan_yutai.py $symbol
+                $response.ContentType = "application/json; charset=utf-8"
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                Write-Host "200 - Kabutan Yutai (via Python) ($symbol)" -ForegroundColor Cyan
+            } catch {
+                Write-Host "500 - Kabutan Yutai Error: $($PSItem.Exception.Message)" -ForegroundColor Red
+                $response.StatusCode = 500
+            }
+            $response.Close()
+            continue
+        }
+
         # Proxy to download JPX listed stocks Excel file
         if ($urlPath -eq "api/jpx-excel") {
             try {

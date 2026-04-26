@@ -56,6 +56,7 @@ const DOM = {
     ctxNikkei: document.getElementById('ctxNikkei'),
     ctxKabutan: document.getElementById('ctxKabutan'),
     ctxKabuyoho: document.getElementById('ctxKabuyoho'),
+    ctxBuffettCode: document.getElementById('ctxBuffettCode'),
     ctxAiPrompt: document.getElementById('ctxAiPrompt'),
     ctxDelete: document.getElementById('ctxDelete'),
     ctxSendToFolder: document.getElementById('ctxSendToFolder'),
@@ -424,6 +425,13 @@ async function init() {
                 if (!contextTargetSymbol) return;
                 const code = contextTargetSymbol.replace('.T', '');
                 window.open(`https://kabuyoho.ifis.co.jp/index.php?id=100&action=tp1&sa=report&bcode=${code}`, '_blank');
+            };
+        }
+        if (DOM.ctxBuffettCode) {
+            DOM.ctxBuffettCode.onclick = () => {
+                if (!contextTargetSymbol) return;
+                const code = contextTargetSymbol.replace('.T', '');
+                window.open(`https://www.buffett-code.com/company/${code}/`, '_blank');
             };
         }
         if (DOM.ctxAiPrompt) {
@@ -1495,6 +1503,7 @@ async function fetchStockData(stock) {
             const price = hMeta.regularMarketPrice;
             if (price !== undefined && price !== null) {
                 DOM.price.textContent = price.toLocaleString();
+                lastCurrentPrice = price; // 配当利回り計算用に保持
             }
             
             // 前日比の計算 (1dリクエストでは chartPreviousClose が確実な前日終値)
@@ -2258,6 +2267,7 @@ function initVerticalResizer() {
 // ---- Financial Charts (Separate Window) ----
 let financeWindow = null;
 let lastFinanceData = null;
+let lastCurrentPrice = null; // 現在株価（配当利回り計算用）
 
 function openFinanceWindow() {
     const width = 1000;
@@ -2300,7 +2310,7 @@ async function fetchAndRenderFinanceData(symbol) {
             });
         }
         
-        const labels = [], revenues = [], grossMargins = [], opMargins = [], netMargins = [], roes = [];
+        const labels = [], revenues = [], grossMargins = [], opMargins = [], netMargins = [], roes = [], equityRatios = [];
         const grossProfits = [], opIncomes = [], netIncomes = [];
         
         reversedIncome.forEach(inc => {
@@ -2331,9 +2341,72 @@ async function fetchAndRenderFinanceData(symbol) {
                         || bsMap[date]
                         || 0;
             roes.push(equity ? (ni / equity) * 100 : 0);
+
+            // 自己資本比率（日経から取得した場合のみ存在）
+            const er = inc.equityRatio?.raw;
+            equityRatios.push(er !== undefined && er !== null ? er : null);
         });
         
         const forecast = data.quoteSummary?.result?.[0]?.earningsEstimate;
+        
+        let dividendData = null;
+        try {
+            const divResp = await fetch(`/api/nikkei_dividend?symbol=${encodeURIComponent(symbol)}`);
+            if (divResp.ok) {
+                dividendData = await divResp.json();
+                if (dividendData.error) {
+                    console.error("Nikkei API returned error:", dividendData.error);
+                    dividendData = null;
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch Nikkei Dividend data", e);
+        }
+        
+        // ----- 株探から日本語事業概要を取得 -----
+        let businessInfo = null;
+        if (symbol.endsWith('.T')) {
+            try {
+                const bizResp = await fetch(`/api/kabutan_biz?symbol=${encodeURIComponent(symbol)}`);
+                if (bizResp.ok) {
+                    const bizData = await bizResp.json();
+                    if (bizData.summary) businessInfo = bizData;
+                }
+            } catch (e) {
+                console.warn('Kabutan biz info fetch failed', e);
+            }
+        } else {
+            // 米国株など: quoteSummaryのbusinessInfoをそのまま使用
+            businessInfo = data.quoteSummary?.result?.[0]?.businessInfo || null;
+        }
+
+        // ----- 株探から直近ニュースを取得 -----
+        let newsInfo = null;
+        if (symbol.endsWith('.T')) {
+            try {
+                const newsResp = await fetch(`/api/kabutan_news?symbol=${encodeURIComponent(symbol)}`);
+                if (newsResp.ok) {
+                    const newsData = await newsResp.json();
+                    if (newsData.news) newsInfo = newsData.news;
+                }
+            } catch (e) {
+                console.warn('Kabutan news fetch failed', e);
+            }
+        }
+
+        // ----- 株探から株主優待情報を取得 -----
+        let yutaiInfo = null;
+        if (symbol.endsWith('.T')) {
+            try {
+                const yutaiResp = await fetch(`/api/kabutan_yutai?symbol=${encodeURIComponent(symbol)}`);
+                if (yutaiResp.ok) {
+                    const yutaiData = await yutaiResp.json();
+                    if (!yutaiData.error) yutaiInfo = yutaiData;
+                }
+            } catch (e) {
+                console.warn('Kabutan yutai fetch failed', e);
+            }
+        }
         
         lastFinanceData = { 
             labels, 
@@ -2342,10 +2415,16 @@ async function fetchAndRenderFinanceData(symbol) {
             opMargins, 
             netMargins, 
             roes, 
+            equityRatios,
             grossProfits, 
             opIncomes, 
             netIncomes,
-            forecast: forecast ? forecast / 1000000 : null 
+            forecast: forecast ? forecast / 1000000 : null,
+            dividendData: dividendData,
+            currentPrice: lastCurrentPrice,
+            businessInfo: businessInfo,
+            newsInfo: newsInfo,
+            yutaiInfo: yutaiInfo
         };
         
         // 別ウィンドウが開いていれば更新
