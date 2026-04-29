@@ -60,6 +60,7 @@ const DOM = {
     ctxAiPrompt: document.getElementById('ctxAiPrompt'),
     ctxDelete: document.getElementById('ctxDelete'),
     ctxSendToFolder: document.getElementById('ctxSendToFolder'),
+    ctxMoveToFolder: document.getElementById('ctxMoveToFolder'),
     folderSendSubMenu: document.getElementById('folderSendSubMenu'),
     middleSendSubMenu: document.getElementById('middleSendSubMenu'),
     folderContextMenu: document.getElementById('folderContextMenu'),
@@ -416,11 +417,17 @@ async function init() {
             };
         }
 
-        // ---- フォルダへ送る ----
+        // ---- フォルダへ送る / 移動する ----
         if (DOM.ctxSendToFolder) {
             DOM.ctxSendToFolder.addEventListener('mouseenter', (e) => {
                 hideAllSubMenus();
-                showFolderSendMenu(DOM.ctxSendToFolder);
+                showFolderSendMenu(DOM.ctxSendToFolder, false);
+            });
+        }
+        if (DOM.ctxMoveToFolder) {
+            DOM.ctxMoveToFolder.addEventListener('mouseenter', (e) => {
+                hideAllSubMenus();
+                showFolderSendMenu(DOM.ctxMoveToFolder, true);
             });
         }
 
@@ -1214,7 +1221,7 @@ function positionSubMenu(anchor, submenu, level) {
     submenu.style.top = `${top}px`;
 }
 
-function showFolderSendMenu(anchorEl) {
+function showFolderSendMenu(anchorEl, isMove = false) {
     const sub = DOM.folderSendSubMenu;
     if (!sub) return;
     
@@ -1242,7 +1249,7 @@ function showFolderSendMenu(anchorEl) {
         item.addEventListener('mouseenter', () => {
             // 既存の中フォルダサブメニューを閉じてから新しく開く
             if (DOM.middleSendSubMenu) DOM.middleSendSubMenu.classList.add('hidden');
-            showMiddleSendMenu(item, major);
+            showMiddleSendMenu(item, major, isMove);
         });
         
         sub.appendChild(item);
@@ -1251,7 +1258,7 @@ function showFolderSendMenu(anchorEl) {
     positionSubMenu(anchorEl, sub, 0);
 }
 
-function showMiddleSendMenu(anchorEl, majorName) {
+function showMiddleSendMenu(anchorEl, majorName, isMove = false) {
     const sub = DOM.middleSendSubMenu;
     if (!sub) return;
     
@@ -1276,7 +1283,7 @@ function showMiddleSendMenu(anchorEl, majorName) {
         
         item.addEventListener('click', (e) => {
             e.stopPropagation();
-            sendStockToFolder(majorName, middle);
+            sendStockToFolder(majorName, middle, isMove);
         });
         
         sub.appendChild(item);
@@ -1285,7 +1292,7 @@ function showMiddleSendMenu(anchorEl, majorName) {
     positionSubMenu(anchorEl, sub, 1);
 }
 
-function sendStockToFolder(majorName, middleName) {
+function sendStockToFolder(majorName, middleName, isMove = false) {
     if (!contextTargetSymbol || !contextTargetStock) return;
     
     // 重複チェック
@@ -1300,6 +1307,20 @@ function sendStockToFolder(majorName, middleName) {
         hideAllSubMenus();
         if (DOM.contextMenu) DOM.contextMenu.classList.add('hidden');
         return;
+    }
+    
+    // 移動の場合は元のフォルダから削除する
+    if (isMove) {
+        const oldMajor = contextTargetStock.major;
+        const oldMiddle = contextTargetStock.middle;
+        
+        const index = STOCKS.findIndex(s => s === contextTargetStock);
+        if (index > -1) STOCKS.splice(index, 1);
+        
+        if (TREE_DATA[oldMajor] && TREE_DATA[oldMajor][oldMiddle]) {
+            const tIdx = TREE_DATA[oldMajor][oldMiddle].findIndex(s => s === contextTargetStock);
+            if (tIdx > -1) TREE_DATA[oldMajor][oldMiddle].splice(tIdx, 1);
+        }
     }
     
     const newStock = { 
